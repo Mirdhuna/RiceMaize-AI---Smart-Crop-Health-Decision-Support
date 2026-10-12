@@ -1,0 +1,10 @@
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]
+Dataset/
+data/raw/
+*.pt
+*.pth
+*.onnx

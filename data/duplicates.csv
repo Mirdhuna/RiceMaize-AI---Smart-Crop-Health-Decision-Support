@@ -1,0 +1,18 @@
+duplicate,original,label
+Dataset/Maize/Insect-pests/01_aphid/Maize_Aphid 224.jpg,Dataset/Maize/Insect-pests/01_aphid/Maize_Aphid 217.jpg,Maize/Insect-pests/01_aphid
+Dataset/Rice/Disease/01_Bacterial_leaf_blight/7d2f4003-613b-4882-aaa7-177d58ef8626.Jpg,Dataset/Rice/Disease/01_Bacterial_leaf_blight/7c1c5c16-ac7e-400b-9663-6f1e761ab387.Jpg,Rice/Disease/01_Bacterial_leaf_blight
+Dataset/Rice/Disease/01_Bacterial_leaf_blight/7fc7de25-909d-45d0-b544-9db54d294013.Jpg,Dataset/Rice/Disease/01_Bacterial_leaf_blight/7f2d5ff6-1262-4304-be56-84de191babf0.Jpg,Rice/Disease/01_Bacterial_leaf_blight
+Dataset/Rice/Disease/01_Bacterial_leaf_blight/8c6ae996-2353-4cfa-8b93-7b252a01b0bc.Jpg,Dataset/Rice/Disease/01_Bacterial_leaf_blight/8a7cd835-8311-4f96-be3b-74669b49a6bc.Jpg,Rice/Disease/01_Bacterial_leaf_blight
+Dataset/Rice/Disease/01_Bacterial_leaf_blight/8cdd598d-998a-4c73-9f7d-3afdcd6ccf9f.Jpg,Dataset/Rice/Disease/01_Bacterial_leaf_blight/7d182f7e-ad60-44be-bf50-78aa28a1c9a7.Jpg,Rice/Disease/01_Bacterial_leaf_blight
+Dataset/Rice/Healthy/2a2ad0c4-6580-4539-b7de-6f698866db48.Jpg,Dataset/Rice/Healthy/0d4e4fed-e804-4ab2-843f-7e2652d947c4.Jpg,Rice/Healthy
+Dataset/Rice/Healthy/2ca77713-9b84-4deb-b721-1a2f80a30a6f.Jpg,Dataset/Rice/Healthy/0e60d693-ab49-4891-89c6-0e611fe54815.Jpg,Rice/Healthy
+Dataset/Rice/Insect-pests/05_Leaf_folder/09_Leaf_folder_insect_097.jpg,Dataset/Rice/Insect-pests/05_Leaf_folder/09_Leaf_folder_insect_004.jpg,Rice/Insect-pests/05_Leaf_folder
+Dataset/Rice/Insect-pests/06_Rice_skipper/7cd8fe51-e7de-471a-8742-ead97b8bad00.Jpg,Dataset/Rice/Insect-pests/06_Rice_skipper/7af32538-dd19-4571-8a6f-75955f4df131.Jpg,Rice/Insect-pests/06_Rice_skipper
+Dataset/Rice/Insect-pests/06_Rice_skipper/7fccb0de-0147-439a-be91-3d782b9cbd12.Jpg,Dataset/Rice/Insect-pests/06_Rice_skipper/7e28c7bb-e1d2-4a37-a263-c0687ba8ba57.Jpg,Rice/Insect-pests/06_Rice_skipper
+Dataset/Rice/Insect-pests/06_Rice_skipper/8b56807f-9a81-408a-b61e-901e020b44ce.Jpg,Dataset/Rice/Insect-pests/06_Rice_skipper/7cc95bf0-c89c-4c9c-89f6-2c2025076305.Jpg,Rice/Insect-pests/06_Rice_skipper
+Dataset/Rice/Insect-pests/06_Rice_skipper/8b598f45-1f7d-4998-894f-ae1302411840.Jpg,Dataset/Rice/Insect-pests/06_Rice_skipper/7aaf2921-b68d-44fa-832d-067c2dd51e52.Jpg,Rice/Insect-pests/06_Rice_skipper
+Dataset/Rice/Insect-pests/07_White_stem_borer/9b748b3f-cc3f-4cd3-8785-4dea9f455b24.Jpg,Dataset/Rice/Insect-pests/07_White_stem_borer/7e440dd4-76f4-4525-8ab9-4899ef00b4f5.Jpg,Rice/Insect-pests/07_White_stem_borer
+Dataset/Rice/Insect-pests/08_Yellow_stem_borer/15_Yellow_stem_borer_171.jpg,Dataset/Rice/Insect-pests/08_Yellow_stem_borer/15_Yellow_stem_borer_022.jpg,Rice/Insect-pests/08_Yellow_stem_borer
+Dataset/Rice/Insect-pests/08_Yellow_stem_borer/7e2619e9-620e-46b7-9f27-7e8ce9e19066.Jpg,Dataset/Rice/Insect-pests/08_Yellow_stem_borer/09bcb260-9ceb-4c30-bc6b-d2cefa4fcd1b.Jpg,Rice/Insect-pests/08_Yellow_stem_borer
+Dataset/Rice/Insect-pests/08_Yellow_stem_borer/8bc73264-5347-42d0-bcdd-799521319f0f.Jpg,Dataset/Rice/Insect-pests/08_Yellow_stem_borer/8a7a57dc-abee-4146-b716-3b325627a731.Jpg,Rice/Insect-pests/08_Yellow_stem_borer
+Dataset/Rice/Insect-pests/08_Yellow_stem_borer/9e9eab8e-f20f-4032-b14d-31d8bace0c2a.Jpg,Dataset/Rice/Insect-pests/08_Yellow_stem_borer/8ecf7a2d-d319-4111-bfa2-a4b622074af6.Jpg,Rice/Insect-pests/08_Yellow_stem_borer
