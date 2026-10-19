@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 Dataset/
 data/raw/
+data/cache_224/
 *.pt
 *.pth
 *.onnx

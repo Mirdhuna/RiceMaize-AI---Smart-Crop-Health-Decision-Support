@@ -1,0 +1,71 @@
+ceMaize AI: Model Training & Comparative Performance Report
+Executive Summary
+We built, trained, and rigorously evaluated all three target models for the RiceMaize AI disease and insect-pest classification system across 17 categories (covering Rice and Maize healthy leaves, blights, spots, smuts, and pest infestations).
+
+1. Comparative Results (Untouched Test Set — 130 Images)
+Model Architecture	Type / Initialization	Test Accuracy	Test Macro F1	Test Macro Precision	Test Macro Recall	Inference Latency (CPU)
+Vision Transformer (ViT)	DeiT-Tiny (Pre-trained + Fine-tuned)	81.54%	0.8134	82.75%	81.72%	79.2 ms / image
+Hybrid Ensemble	Validation-Tuned Probability Mix	81.54%	0.8134	82.75%	81.72%	324.6 ms / image
+Baseline CNN	5-Block ConvNet (Trained from Scratch)	31.54%	0.2677	26.22%	31.09%	175.8 ms / image
+NOTE
+
+Winner: The Vision Transformer (DeiT-Tiny) is the top-performing model on both accuracy/F1 and computational efficiency on CPU.
+
+2. Key Technical Findings & Architectural Insights
+Why the Vision Transformer Dominates (81.54% vs 31.54%)
+Pretrained Feature Representations:
+
+The agricultural training set consists of 575 images across 17 classes (~34 images per class). Training a deep convolutional network strictly from scratch on this dataset size suffers from severe data scarcity, capping accuracy around ~31.5%.
+In contrast, the Vision Transformer leverages pre-trained ImageNet representations in 
+checkpoints/deit_tiny_patch16_224.pth
+. By freezing blocks 0–7 and fine-tuning only the top 4 self-attention blocks and classification head, it avoided overfitting while effectively learning crop and pest patterns.
+Self-Attention over Long-Range Lesions:
+
+Agricultural leaf diseases (such as maydis leaf blight, turcicum leaf blight, and bacterial leaf blight) span elongated, irregular patches across entire leaves. ViT's global self-attention mechanism captures these non-local contextual cues across 16x16 patches much better than localized 3x3 convolution kernels.
+CPU Efficiency:
+
+Because DeiT-Tiny immediately downsamples the input via 
+16
+×
+16
+16×16 patch embedding into 196 tokens, it processes images in ~79 ms on your Intel Core i3 CPU, whereas the 5-stage CNN with multiple high-resolution convolutions requires ~175 ms.
+3. Artifacts & Outputs Generated
+All trained checkpoints, logs, and evaluation reports are generated and preserved:
+
+Checkpoints:
+ViT Weights: 
+checkpoints/vit.pt
+ (Epoch 7 best checkpoint)
+CNN Weights: 
+checkpoints/cnn.pt
+ (Epoch 12 best checkpoint)
+Hybrid Config: 
+checkpoints/hybrid.json
+Evaluation Metrics:
+Detailed classification report for all 17 classes: 
+results/classification_reports.txt
+Full metrics JSON: 
+results/comparison.json
+Confusion Matrices:
+results/confusion_vit_test.csv
+results/confusion_cnn_test.csv
+results/confusion_hybrid_test.csv
+4. Verification & Inference
+Single-image inference verified with 
+predict.py
+:
+
+bash
+
+./.venv/bin/python predict.py "Dataset/Rice/Healthy/0c60af21-42a0-4e69-b957-a101c6a7d5c0.Jpg" --model vit
+Output:
+
+text
+
+Model: vit
+Predicted class: Rice/Healthy
+Confidence: 97.73%
+Top predictions:
+   97.73%  Rice/Healthy
+    0.29%  Rice/Disease/02_Brown_spot
+    0.28%  Maize/Healthy

@@ -1,0 +1,6 @@
+{
+  "cnn_weight": 0.0,
+  "vit_weight": 1.0,
+  "selected_on": "val",
+  "val_f1_macro": 0.7563420517845941
+}
