@@ -4,3 +4,4 @@ numpy>=1.21,<1.25
 scikit-learn>=1.0,<1.4
 Pillow>=9.0
 tqdm>=4.64
+streamlit
