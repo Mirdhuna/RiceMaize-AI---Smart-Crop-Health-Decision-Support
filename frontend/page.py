@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 
 # Ensure project root is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -12,15 +12,41 @@ import streamlit as st
 from PIL import Image
 import torch
 
+import importlib
+for mod_name in [
+    "growth_guidance", "translations", "crop_health", "weather_advisor",
+    "reliability", "ood_detector", "yield_estimation"
+]:
+    if mod_name in sys.modules:
+        try:
+            importlib.reload(sys.modules[mod_name])
+        except Exception:
+            pass
+
 from dataset import load_class_names
 from models import build_model
 from torch_dataset import preprocess_pil
 from xai import explain_prediction
 from image_quality import evaluate_image_quality
 from reliability import assess_prediction_reliability, VALIDATION_TEMPERATURE
+from ood_detector import evaluate_ood_input
 from crop_health import assess_crop_health
-from growth_guidance import RICE_GROWTH_STAGES, MAIZE_GROWTH_STAGES, estimate_current_stage
+try:
+    from growth_guidance import get_growth_stages_for_crop, estimate_current_stage
+except ImportError:
+    import growth_guidance
+    importlib.reload(growth_guidance)
+    from growth_guidance import get_growth_stages_for_crop, estimate_current_stage
 from yield_estimation import estimate_crop_yield
+from diagnosis_history import save_diagnosis_record, load_diagnosis_history, analyze_field_progression
+from weather_advisor import evaluate_weather_disease_risks
+from translations import (
+    t,
+    get_localized_condition_name,
+    get_localized_crop_name,
+    get_localized_advisory,
+)
+from report_generator import generate_pdf_report
 
 # -----------------------------------------------------------------------------
 # Page Configuration & Clean Agricultural Styling
@@ -36,16 +62,16 @@ st.markdown(
     """
     <style>
     .main-title {
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 700;
         color: #1b4332;
         margin-bottom: 0.2rem;
     }
     .sub-title {
-        font-size: 1.05rem;
+        font-size: 1.02rem;
         color: #2d6a4f;
         font-weight: 400;
-        margin-bottom: 1.2rem;
+        margin-bottom: 1.1rem;
         line-height: 1.5;
     }
     .metric-card {
@@ -84,17 +110,45 @@ st.markdown(
         display: inline-block;
     }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 6px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 10px 18px;
+        padding: 9px 14px;
         border-radius: 8px 8px 0 0;
         font-weight: 600;
+        font-size: 0.95rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+# -----------------------------------------------------------------------------
+# Sidebar: Language Toggle & Farmer Quick Access
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🌐 Language / மொழி")
+    lang_choice = st.radio(
+        "Select Language / மொழியைத் தேர்ந்தெடுக்கவும்:",
+        ["English", "தமிழ் (Tamil)"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    lang = "ta" if "தமிழ்" in lang_choice else "en"
+
+    st.markdown("---")
+    st.markdown(
+        f"""
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px; color: #166534; font-size: 0.85rem;">
+            <b>{'🌾 Kisan Assistance Helpline' if lang=='en' else '🌾 உழவர் உதவி மையம்'}</b><br>
+            Toll-Free: <b>1800-180-1551</b><br>
+            {'Daily 6:00 AM – 10:00 PM' if lang=='en' else 'தினசரி காலை 6:00 – இரவு 10:00'}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+    st.caption("RiceMaize AI v2.2 • CPU Optimized • Tamil Nadu & National ICAR/TNAU Guidelines")
 
 # -----------------------------------------------------------------------------
 # Verified ICAR / TNAU / IRRI / CIMMYT Agricultural Knowledge Base
@@ -458,27 +512,23 @@ def get_model():
 
 
 # -----------------------------------------------------------------------------
-# Header — 2-Line Overview
+# Header — Dynamic Bilingual Overview
 # -----------------------------------------------------------------------------
-st.markdown('<div class="main-title">🌾 RiceMaize AI — Smart Crop Health & Decision Support</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">'
-    'Empowering farmers with AI-powered crop diagnostics, visual explanations, and verified agronomic support.<br>'
-    'Upload a crop photo to receive instant diagnosis, reliability analysis, treatment solutions, and growth guidance.'
-    '</div>',
-    unsafe_allow_html=True,
-)
+st.markdown(f'<div class="main-title">{t("app_title", lang)}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sub-title">{t("app_subtitle", lang)}</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# Main Navigation Tabs
+# Main Navigation Tabs (7 Integrated Feature Modules)
 # -----------------------------------------------------------------------------
-tab_diag, tab_health, tab_growth, tab_yield, tab_guide = st.tabs(
+tab_diag, tab_health, tab_growth, tab_yield, tab_history, tab_weather, tab_guide = st.tabs(
     [
-        "📸 Instant Diagnosis & Explainable AI",
-        "🩺 Crop Health Assessment",
-        "🌱 Growth Stage Agronomy",
-        "📊 Yield & Production Estimator",
-        "📖 Field Guide & Library",
+        t("tab_diagnosis", lang),
+        t("tab_health", lang),
+        t("tab_growth", lang),
+        t("tab_yield", lang),
+        t("tab_history", lang),
+        t("tab_weather", lang),
+        t("tab_guide", lang),
     ]
 )
 
@@ -489,21 +539,21 @@ with tab_diag:
     col_input, col_result = st.columns([1, 1.2], gap="large")
 
     with col_input:
-        st.markdown("### 📤 Upload Crop Photo")
-        st.write("Upload a clear, well-lit photo of the affected plant leaf, stem, or pest.")
+        st.markdown(f"### {t('upload_header', lang)}")
+        st.write(t("upload_caption", lang))
 
         uploaded_file = st.file_uploader(
-            "Choose a leaf or pest photo",
+            "Upload leaf image",
             type=["jpg", "jpeg", "png", "webp"],
             help="Supported formats: JPG, PNG, WEBP",
             label_visibility="collapsed",
         )
 
         st.markdown("---")
-        st.markdown("#### 🧪 Or Test With a Sample Photo")
+        st.markdown(f"#### {t('sample_header', lang)}")
 
         sample_options = {
-            "Select a sample image...": None,
+            "Select sample...": None,
             "🌾 Rice - Healthy Leaf": ROOT_DIR / "Dataset/Rice/Healthy/0c60af21-42a0-4e69-b957-a101c6a7d5c0.Jpg",
             "🌾 Rice - Brown Spot Disease": ROOT_DIR / "Dataset/Rice/Disease/02_Brown_spot/02_Brown_spot (1).jpg",
             "🌾 Rice - Bacterial Leaf Blight": ROOT_DIR / "Dataset/Rice/Disease/01_Bacterial_leaf_blight/01_Bacterial_leaf_blight (1).jpg",
@@ -520,7 +570,6 @@ with tab_diag:
         selected_sample_path = sample_options[selected_sample_label]
 
         active_image = None
-
         if uploaded_file is not None:
             active_image = Image.open(uploaded_file).convert("RGB")
         elif selected_sample_path and Path(selected_sample_path).exists():
@@ -547,7 +596,7 @@ with tab_diag:
                     st.warning(f"💡 {tip}")
 
     with col_result:
-        st.markdown("### 📋 Diagnostic Result & Reliability")
+        st.markdown(f"### {t('results_header', lang)}")
 
         if active_image is None:
             st.info("👈 **Upload an image or pick a sample photo** on the left to begin diagnosis.")
@@ -565,13 +614,24 @@ with tab_diag:
                 unsafe_allow_html=True,
             )
         else:
-            with st.spinner("Analyzing image features and evaluating reliability..."):
+            with st.spinner("Analyzing image features, checking domain validity, and evaluating reliability..."):
                 model, class_names, device = get_model()
                 tensor = preprocess_pil(active_image).unsqueeze(0).to(device)
 
                 with torch.no_grad():
                     logits = model(tensor)
 
+                # Feature 1 (Recommended Addition): OOD / Unknown Subject Safeguard
+                ood_rep = evaluate_ood_input(model, tensor, logits, temperature=VALIDATION_TEMPERATURE)
+
+            # If input is clearly alien / unsupported crop, trigger protective rejection!
+            if not ood_rep.is_supported_crop:
+                st.error(ood_rep.rejection_notice, icon="🚫")
+                st.info(
+                    "💡 **Supported Crops**: This system exclusively diagnoses **Rice (Paddy)** and **Maize (Corn)**. "
+                    "If you are photographing tomato, potato, cotton, or fruit trees, please use an appropriate specialized tool."
+                )
+            else:
                 # Feature 2: Reliability & Validation Temperature Calibration
                 rel_rep = assess_prediction_reliability(
                     logits=logits,
@@ -581,7 +641,7 @@ with tab_diag:
                 )
 
                 raw_class = rel_rep.predicted_class
-                advisory = ADVISORY_DATABASE.get(
+                en_advisory = ADVISORY_DATABASE.get(
                     raw_class,
                     {
                         "crop": raw_class.split("/")[0],
@@ -594,6 +654,9 @@ with tab_diag:
                         "prevention": ["Maintain balanced NPK fertilization and clean drainage."],
                     },
                 )
+                advisory = get_localized_advisory(raw_class, en_advisory, lang=lang)
+                localized_crop = advisory['crop']
+                localized_name = advisory['name']
 
                 # Feature 1: Explainable AI Attribution
                 explained_img, xai_caption = explain_prediction(
@@ -604,94 +667,150 @@ with tab_diag:
                     target_class=class_names.index(raw_class),
                 )
 
-            # Badge styling
-            if advisory["severity"] == "Healthy":
-                badge_html = '<span class="badge-healthy">🟢 HEALTHY CROP — VIGOROUS</span>'
-            elif advisory["severity"] == "Critical":
-                badge_html = '<span class="badge-danger">🔴 CRITICAL ACTION REQUIRED</span>'
-            else:
-                badge_html = '<span class="badge-warning">🟠 ATTENTION REQUIRED — ACTIVE CONDITION</span>'
-
-            # Result card
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 1.15rem; font-weight: 600; color: #1b4332;">{advisory['crop']}</span>
-                        {badge_html}
-                    </div>
-                    <div style="font-size: 1.6rem; font-weight: 700; color: #081c15; margin-bottom: 4px;">
-                        {advisory['name']}
-                    </div>
-                    <div style="font-size: 0.95rem; color: #40916c; font-weight: 500; margin-bottom: 8px;">
-                        Nature: {advisory['category']}
-                    </div>
-                    <div style="font-size: 0.9rem; color: #2d6a4f; margin-bottom: 4px;">
-                        <b>Calibrated Confidence:</b> {rel_rep.calibrated_confidence:.1f}% &nbsp;•&nbsp; 
-                        <b>Reliability Status:</b> <i>{rel_rep.reliability_level}</i>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.progress(min(rel_rep.calibrated_confidence / 100.0, 1.0))
-
-            # Feature 2: Cautionary Notice / Uncertainty Warning
-            if rel_rep.warning_notice:
-                st.warning(rel_rep.warning_notice)
-
-            # Feature 2: Top-3 candidate predictions
-            with st.expander("📊 View Top-3 Model Candidates (Calibrated Probabilities)"):
-                for rank, (cand_name, cand_prob) in enumerate(rel_rep.top_predictions, start=1):
-                    cand_display = cand_name.split("/")[-1].replace("_", " ")
-                    st.write(f"**{rank}. {cand_name.split('/')[0]} — {cand_display}**: `{cand_prob:.1f}%`")
-
-            # Feature 1: Side-by-side Visual Explanation
-            st.markdown("#### 🔍 Explainable AI (Visual Focus Heatmap)")
-            col_orig, col_xai = st.columns(2)
-            with col_orig:
-                st.image(active_image, caption="Original Uploaded Photo", use_container_width=True)
-            with col_xai:
-                if explained_img is not None:
-                    st.image(explained_img, caption="AI Attribution Heatmap (Warm = Strongest Focus)", use_container_width=True)
+                # Badge styling
+                sev = advisory.get("severity", "Medium")
+                if sev == "Healthy":
+                    badge_html = f'<span class="badge-healthy">{t("badge_healthy", lang)}</span>'
+                elif sev == "Critical":
+                    badge_html = f'<span class="badge-danger">{t("badge_danger", lang)}</span>'
                 else:
-                    st.caption("Visual explanation could not be generated.")
+                    badge_html = f'<span class="badge-warning">{t("badge_warning", lang)}</span>'
 
-            st.caption(
-                "ℹ️ **Interpretability Notice**: Warm red/yellow highlighted zones indicate leaf areas that most influenced "
-                "the model's prediction. This visualization aids human verification and does not constitute microbiological proof."
-            )
+                # Result card
+                st.markdown(
+                    f"""
+                    <div class="metric-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 1.15rem; font-weight: 600; color: #1b4332;">{localized_crop}</span>
+                            {badge_html}
+                        </div>
+                        <div style="font-size: 1.6rem; font-weight: 700; color: #081c15; margin-bottom: 4px;">
+                            {localized_name}
+                        </div>
+                        <div style="font-size: 0.95rem; color: #40916c; font-weight: 500; margin-bottom: 8px;">
+                            {advisory['category']}
+                        </div>
+                        <div style="font-size: 0.9rem; color: #2d6a4f; margin-bottom: 4px;">
+                            <b>{t('confidence_label', lang)}:</b> {rel_rep.calibrated_confidence:.1f}% &nbsp;•&nbsp; 
+                            <b>Status:</b> <i>{rel_rep.reliability_level}</i>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.progress(min(rel_rep.calibrated_confidence / 100.0, 1.0))
 
-            # Feature 4: Verified Treatment & Advisory Tabs
-            treat_tab1, treat_tab2, treat_tab3 = st.tabs(
-                ["🌿 Organic & Biological Care", "🧪 Chemical Control", "🚜 Prevention & Field Recovery"]
-            )
+                # OOD Borderline or Cautionary Warning
+                if ood_rep.rejection_notice:
+                    st.warning(ood_rep.rejection_notice)
+                elif rel_rep.warning_notice:
+                    st.warning(rel_rep.warning_notice)
 
-            with treat_tab1:
-                st.markdown("##### 🌿 Organic, Cultural & Biological Remedies")
-                st.write("Safe for soil ecology, pollinators, and beneficial insects:")
-                for item in advisory["organic"]:
-                    st.markdown(f"• {item}", unsafe_allow_html=True)
+                # Top-3 candidate predictions
+                with st.expander("📊 View Top-3 Model Candidates (Calibrated Probabilities)"):
+                    for rank, (cand_name, cand_prob) in enumerate(rel_rep.top_predictions, start=1):
+                        cand_disp = get_localized_condition_name(cand_name, cand_name.split("/")[-1].replace("_", " "), lang)
+                        cand_c = get_localized_crop_name(cand_name.split("/")[0], lang)
+                        st.write(f"**{rank}. {cand_c} — {cand_disp}**: `{cand_prob:.1f}%`")
 
-            with treat_tab2:
-                st.markdown("##### 🧪 Recommended Chemical Treatments")
-                st.write("Targeted options for severe infections or threshold-exceeding outbreaks:")
-                for item in advisory["chemical"]:
-                    st.markdown(f"• {item}", unsafe_allow_html=True)
-                st.warning("⚠️ **Safety Notice**: Adhere to manufacturer label dosages, pre-harvest intervals (PHI), and wear protective gloves/masks.")
+                # Feature 1: Side-by-side Visual Explanation
+                st.markdown("#### 🔍 Explainable AI (Visual Focus Heatmap)")
+                col_orig, col_xai = st.columns(2)
+                with col_orig:
+                    st.image(active_image, caption="Original Uploaded Photo", use_container_width=True)
+                with col_xai:
+                    if explained_img is not None:
+                        st.image(explained_img, caption="AI Attribution Heatmap (Warm = Strongest Focus)", use_container_width=True)
+                    else:
+                        st.caption("Visual explanation could not be generated.")
 
-            with treat_tab3:
-                st.markdown("##### 🚜 Agronomic Recovery & Prevention")
-                st.write("Prevent pathogen recurrence and enhance plant resilience:")
-                for item in advisory["prevention"]:
-                    st.markdown(f"• {item}", unsafe_allow_html=True)
+                st.caption(
+                    "ℹ️ **Interpretability Notice**: Warm red/yellow highlighted zones indicate leaf areas that most influenced "
+                    "the model's prediction. This visualization aids human verification and does not constitute microbiological proof."
+                )
+
+                # Verified Treatment & Advisory Tabs
+                treat_tab1, treat_tab2, treat_tab3 = st.tabs(
+                    [t("organic_care", lang), t("chemical_control", lang), t("prevention_plan", lang)]
+                )
+
+                with treat_tab1:
+                    st.markdown(f"##### {t('organic_care', lang)}")
+                    st.write("Safe for soil ecology, pollinators, and beneficial insects:")
+                    for item in advisory["organic"]:
+                        st.markdown(f"• {item}", unsafe_allow_html=True)
+
+                with treat_tab2:
+                    st.markdown(f"##### {t('chemical_control', lang)}")
+                    st.write("Targeted options for severe infections or threshold-exceeding outbreaks:")
+                    for item in advisory["chemical"]:
+                        st.markdown(f"• {item}", unsafe_allow_html=True)
+                    st.warning("⚠️ **Safety Notice**: Adhere to manufacturer label dosages, pre-harvest intervals (PHI), and wear protective gloves/masks.")
+
+                with treat_tab3:
+                    st.markdown(f"##### {t('prevention_plan', lang)}")
+                    st.write("Prevent pathogen recurrence and enhance plant resilience:")
+                    for item in advisory["prevention"]:
+                        st.markdown(f"• {item}", unsafe_allow_html=True)
+
+                # -------------------------------------------------------------
+                # Recommended Additions: PDF Export & Field History Logging
+                # -------------------------------------------------------------
+                st.markdown("---")
+                st.markdown("#### 💾 Save Record & Export Report")
+                col_act1, col_act2 = st.columns(2)
+
+                with col_act1:
+                    field_plot_id = st.text_input("Enter Field / Plot Name:", value="North Plot 1", key="plot_id_in")
+                    farmer_obs = st.text_input("Optional Field Notes (e.g. spray date, weather):", value="", key="notes_in")
+
+                    if st.button(t("save_history", lang), type="secondary"):
+                        rec = save_diagnosis_record(
+                            field_name=field_plot_id,
+                            crop=advisory["crop"],
+                            crop_stage="Observed Stage",
+                            condition_raw=raw_class,
+                            condition_display=localized_name,
+                            severity=advisory.get("severity", "Medium"),
+                            confidence=rel_rep.calibrated_confidence,
+                            farmer_notes=farmer_obs,
+                            image=active_image,
+                        )
+                        st.success(f"✅ Record saved to Field History! ID: `{rec['id']}`. View progress in the Field History tab.")
+
+                with col_act2:
+                    st.write("Generate an official, printable diagnostic card for extension officers:")
+                    try:
+                        pdf_data = generate_pdf_report(
+                            farmer_or_plot_id=field_plot_id,
+                            crop=advisory["crop"],
+                            condition_display=advisory["name"],
+                            category=advisory["category"],
+                            severity=advisory.get("severity", "Medium"),
+                            confidence=rel_rep.calibrated_confidence,
+                            top_predictions=rel_rep.top_predictions,
+                            organic_remedies=advisory["organic"],
+                            chemical_treatments=advisory["chemical"],
+                            prevention_tips=advisory["prevention"],
+                            original_image=active_image,
+                            heatmap_image=explained_img,
+                        )
+                        st.download_button(
+                            label=t("download_pdf", lang),
+                            data=pdf_data,
+                            file_name=f"RiceMaize_Diagnosis_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                        )
+                    except Exception as err:
+                        st.caption(f"PDF export temporarily unavailable: {err}")
 
 
 # =============================================================================
 # TAB 2: CROP HEALTH ASSESSMENT (FEATURE 5)
 # =============================================================================
 with tab_health:
-    st.markdown("### 🩺 Multi-Factor Crop Health Assessment")
+    st.markdown(f"### {t('tab_health', lang)}")
     st.write(
         "Synthesize visual diagnostic findings with your real-time field observations "
         "(crop stage, field spread percentage, and microclimate conditions) to assess overall crop health risk."
@@ -700,46 +819,39 @@ with tab_health:
     col_h_in1, col_h_in2 = st.columns(2)
 
     with col_h_in1:
-        h_crop = st.selectbox("Select Crop Type:", ["Rice (Paddy)", "Maize (Corn)"], key="h_crop")
+        crop_choices = ["நெல் (Paddy)", "மக்காச்சோளம் (Corn)"] if lang == "ta" else ["Rice (Paddy)", "Maize (Corn)"]
+        h_crop = st.selectbox("Select Crop Type / பயிர் வகை:", crop_choices, key="h_crop")
         h_condition = st.selectbox(
             "Current Observed / Diagnosed Condition:",
             list(ADVISORY_DATABASE.keys()),
-            format_func=lambda x: f"{x.split('/')[0]} — {ADVISORY_DATABASE[x]['name']}",
+            format_func=lambda x: f"{get_localized_crop_name(x.split('/')[0], lang)} — {get_localized_condition_name(x, ADVISORY_DATABASE[x]['name'], lang)}",
             key="h_cond",
         )
         h_confidence = st.slider("Diagnostic Confidence (%):", min_value=10, max_value=100, value=85, step=5)
 
     with col_h_in2:
-        h_stage = st.selectbox(
-            "Current Crop Growth Stage:",
-            [
-                "Seedling / Nursery",
-                "Active Vegetative / Tillering",
-                "Panicle Initiation / Knee-High",
-                "Flowering / Heading / Tasseling",
-                "Grain / Cob Filling",
-                "Maturity",
-            ],
-            key="h_stage",
-        )
-        h_spread = st.selectbox(
-            "Estimated Field Area Affected:",
-            [
-                "Isolated / Few Plants (<5%)",
-                "Patchy / Localized Spots (5% – 20%)",
-                "Widespread / Severe (>20%)",
-            ],
-            key="h_spread",
-        )
-        h_weather = st.selectbox(
-            "Recent Weather Over Past 7 Days:",
-            [
-                "Moderate / Normal Sunlight",
-                "Heavy Rain / High Humidity / Cloud Cover",
-                "Hot & Dry / Water Stress",
-            ],
-            key="h_weather",
-        )
+        stage_options = [
+            "1. நாற்றங்கால் / இளம் பயிர் பருவம் (Seedling / Nursery)" if lang == "ta" else "Seedling / Nursery",
+            "2. தூர்கட்டும் / வளர்ச்சி பருவம் (Active Tillering / Vegetative)" if lang == "ta" else "Active Vegetative / Tillering",
+            "3. கதிர் உருவாகும் / முழங்கால் உயர பருவம் (Panicle / Knee-High)" if lang == "ta" else "Panicle Initiation / Knee-High",
+            "4. பூக்கும் / கதிர் வெளிவரும் பருவம் (Flowering / Heading)" if lang == "ta" else "Flowering / Heading / Tasseling",
+            "5. தானியம் பால் பிடிக்கும் பருவம் (Grain / Cob Filling)" if lang == "ta" else "Grain / Cob Filling",
+            "6. முதிர்ச்சி மற்றும் அறுவடை நிலை (Maturity)" if lang == "ta" else "Maturity",
+        ]
+        spread_options = [
+            "குறைவான பாதிப்பு / சில செடிகள் மட்டும் (<5%)" if lang == "ta" else "Isolated / Few Plants (<5%)",
+            "ஆங்காங்கே திட்டு திட்டாக பரவியுள்ளது (5% – 20%)" if lang == "ta" else "Patchy / Localized Spots (5% – 20%)",
+            "வயல் முழுவதும் தீவிரமாக பரவியுள்ளது (>20%)" if lang == "ta" else "Widespread / Severe (>20%)",
+        ]
+        weather_options = [
+            "மிதமான வெயில் / சாதாரண நிலை" if lang == "ta" else "Moderate / Normal Sunlight",
+            "அதிக மழை / தீவிர ஈரப்பதம் / மேகமூட்டம்" if lang == "ta" else "Heavy Rain / High Humidity / Cloud Cover",
+            "கடுமையான வெயில் / வறட்சி" if lang == "ta" else "Hot & Dry / Water Stress",
+        ]
+
+        h_stage = st.selectbox("Current Crop Growth Stage / வளர்ச்சிப் பருவம்:", stage_options, key="h_stage")
+        h_spread = st.selectbox("Estimated Field Area Affected / பாதிப்பு பரப்பு:", spread_options, key="h_spread")
+        h_weather = st.selectbox("Recent Weather / சமீபத்திய வானிலை:", weather_options, key="h_weather")
 
     if st.button("Generate Crop Health Assessment Report", type="primary"):
         health_rep = assess_crop_health(
@@ -782,7 +894,7 @@ with tab_health:
 # TAB 3: GROWTH STAGE AGRONOMY (FEATURE 6)
 # =============================================================================
 with tab_growth:
-    st.markdown("### 🌱 Crop-Stage Agronomy & Growth Guidance")
+    st.markdown(f"### {t('tab_growth', lang)}")
     st.write("Verified stage-by-stage agronomic advisories based on ICAR, TNAU, and IRRI best practices.")
 
     g_col1, g_col2 = st.columns([1, 1.5], gap="large")
@@ -792,25 +904,33 @@ with tab_growth:
         g_crop = st.radio("Choose Crop:", ["Rice (Paddy)", "Maize (Corn)"], horizontal=True)
         sow_date = st.date_input("Sowing / Transplanting Date:", value=date.today())
 
-        current_stage = estimate_current_stage(g_crop, sow_date)
+        current_stage = estimate_current_stage(g_crop, sow_date, lang=lang)
         if current_stage is not None:
             st.success(f"🌾 **Estimated Stage**: {current_stage.stage_name}")
             st.caption(f"Estimated timeframe: {current_stage.duration_days}")
 
     with g_col2:
-        st.markdown(f"#### 📖 Detailed Agronomy Guide ({g_crop})")
-        stages_list = RICE_GROWTH_STAGES if "Rice" in g_crop else MAIZE_GROWTH_STAGES
+        guide_title = f"#### 📖 {get_localized_crop_name(g_crop, lang)} - {'பயிர் வளர்ச்சி வழிகாட்டி' if lang=='ta' else 'Detailed Agronomy Guide'}"
+        st.markdown(guide_title)
+        stages_list = get_growth_stages_for_crop(g_crop, lang=lang)
+
+        irrig_hdr = "💧 பாசன மற்றும் நீர் மேலாண்மை:" if lang == "ta" else "💧 Irrigation & Water Management:"
+        nutr_hdr = "🌱 உரம் மற்றும் சத்து மேலாண்மை:" if lang == "ta" else "🌱 Nutrient & Fertilizer Scheduling:"
+        weed_hdr = "🌿 களை மேலாண்மை:" if lang == "ta" else "🌿 Weed Management:"
+        pest_hdr = "🐛 பூச்சி மற்றும் நோய் கண்காணிப்பு:" if lang == "ta" else "🐛 Pest & Disease Vigilance:"
+        gap_hdr = "⭐ சிறந்த கள நடைமுறைகள்:" if lang == "ta" else "⭐ Good Agricultural Practices:"
 
         for stage in stages_list:
             is_active = (current_stage is not None and stage.stage_name == current_stage.stage_name)
-            expander_title = f"{'⭐ [CURRENT] ' if is_active else ''}{stage.stage_name} ({stage.duration_days})"
+            current_prefix = '⭐ [தற்போதைய பருவம்] ' if lang == 'ta' else '⭐ [CURRENT] '
+            expander_title = f"{current_prefix if is_active else ''}{stage.stage_name} ({stage.duration_days})"
 
             with st.expander(expander_title, expanded=is_active):
-                st.markdown(f"**💧 Irrigation & Water Management:**<br>{stage.irrigation_advice}", unsafe_allow_html=True)
-                st.markdown(f"**🌱 Nutrient & Fertilizer Scheduling:**<br>{stage.nutrient_management}", unsafe_allow_html=True)
-                st.markdown(f"**🌿 Weed Management:**<br>{stage.weed_control}", unsafe_allow_html=True)
-                st.markdown(f"**🐛 Pest & Disease Vigilance:**<br>{stage.pest_disease_watch}", unsafe_allow_html=True)
-                st.markdown("**⭐ Good Agricultural Practices:**")
+                st.markdown(f"**{irrig_hdr}**<br>{stage.irrigation_advice}", unsafe_allow_html=True)
+                st.markdown(f"**{nutr_hdr}**<br>{stage.nutrient_management}", unsafe_allow_html=True)
+                st.markdown(f"**{weed_hdr}**<br>{stage.weed_control}", unsafe_allow_html=True)
+                st.markdown(f"**{pest_hdr}**<br>{stage.pest_disease_watch}", unsafe_allow_html=True)
+                st.markdown(f"**{gap_hdr}**")
                 for bp in stage.best_practices:
                     st.write(f"• {bp}")
 
@@ -819,7 +939,7 @@ with tab_growth:
 # TAB 4: CROP YIELD & PRODUCTION ESTIMATOR (FEATURE 7)
 # =============================================================================
 with tab_yield:
-    st.markdown("### 📊 Crop Yield & Production Estimator (ML Regression)")
+    st.markdown(f"### {t('tab_yield', lang)}")
     st.write(
         "A separate machine learning regression module trained on historical district-level agricultural data "
         "to estimate expected yield (Tonnes/Ha) and total production (Tonnes) based on agro-climatic inputs."
@@ -885,10 +1005,124 @@ with tab_yield:
 
 
 # =============================================================================
-# TAB 5: FIELD GUIDE & DISEASE LIBRARY
+# TAB 5: FIELD DIAGNOSIS HISTORY & PROGRESS TRACKING (RECOMMENDED ADDITION 3)
+# =============================================================================
+with tab_history:
+    st.markdown(f"### {t('tab_history', lang)}")
+    st.write(
+        "Monitor your farm plots over repeated visits to track whether a condition is spreading, "
+        "stabilizing, or recovering after treatment. Repeated observations are required; a single image cannot confirm recovery."
+    )
+
+    history_records = load_diagnosis_history()
+
+    if not history_records:
+        st.info("No saved diagnoses yet. When you diagnose an image in Tab 1, click **'Save Diagnosis to Field History'** to log it here.")
+    else:
+        # Group records by field name
+        fields = sorted(list(set(r["field_name"] for r in history_records)))
+        selected_field = st.selectbox("Select Plot to View Progression:", fields, key="prog_field")
+
+        prog_res = analyze_field_progression(selected_field)
+
+        if prog_res["has_progression"]:
+            st.markdown(
+                f"""
+                <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 16px 20px; border-radius: 10px; margin-bottom: 16px;">
+                    <h4 style="margin: 0 0 6px 0; color: #166534;">
+                        {prog_res['badge_color']} Trajectory: {prog_res['trajectory']} ({prog_res['days_elapsed']} Days Elapsed)
+                    </h4>
+                    <p style="margin: 0; color: #1b4332; font-size: 1.05rem;">{prog_res['analysis']}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info(prog_res["message"])
+
+        st.markdown(f"#### 📋 Logged Field Visits for `{selected_field}`")
+        for rec in prog_res["records"] if not prog_res["has_progression"] else prog_res["all_records"]:
+            with st.expander(f"🗓️ {rec['date_str']} — {rec['crop']} ({rec['condition_display']}) - Severity: {rec['severity']}"):
+                c_h1, c_h2 = st.columns([1, 2])
+                with c_h1:
+                    if rec.get("thumbnail_b64"):
+                        st.markdown(f'<img src="data:image/jpeg;base64,{rec["thumbnail_b64"]}" style="border-radius:8px; width:120px;"/>', unsafe_allow_html=True)
+                with c_h2:
+                    st.write(f"**Condition:** {rec['condition_display']}")
+                    st.write(f"**Confidence:** {rec['confidence']}% &nbsp;|&nbsp; **Severity:** {rec['severity']}")
+                    if rec.get("farmer_notes"):
+                        st.info(f"📝 **Farmer Field Notes:** {rec['farmer_notes']}")
+
+
+# =============================================================================
+# TAB 6: WEATHER-AWARE RISK ADVISORY (RECOMMENDED ADDITION 4)
+# =============================================================================
+with tab_weather:
+    st.markdown(f"### {t('tab_weather', lang)}")
+    st.write(
+        "Forecast prospective disease and pest risks based on real-time microclimate conditions "
+        "(Temperature, Relative Humidity, Rainfall, Cloud Cover). These represent environmental risk indicators, not confirmed diagnoses."
+    )
+
+    w_col1, w_col2 = st.columns(2)
+    with w_col1:
+        w_crop = st.selectbox("Select Crop to Forecast:", ["Rice (Paddy)", "Maize (Corn)"], key="w_crop")
+        w_temp = st.slider("Current Temperature (°C):", min_value=15.0, max_value=45.0, value=29.0, step=0.5)
+        w_hum = st.slider("Relative Humidity (%):", min_value=20.0, max_value=100.0, value=88.0, step=1.0)
+
+    with w_col2:
+        w_rain = st.slider("Recent 48-Hour Rainfall (mm):", min_value=0.0, max_value=150.0, value=18.0, step=2.0)
+        w_cloud = st.selectbox("Sky Condition:", ["Overcast / Cloudy", "Partly Cloudy", "Clear / Sunny"], key="w_cloud")
+
+    if st.button("Evaluate Environmental Pathogen Risks", type="primary"):
+        w_rep = evaluate_weather_disease_risks(
+            crop=w_crop,
+            temperature_c=w_temp,
+            humidity_pct=w_hum,
+            rainfall_mm=w_rain,
+            cloud_cover=w_cloud,
+        )
+
+        st.markdown("---")
+        risk_c = "#e63946" if "Elevated" in w_rep.overall_environmental_risk else ("#f77f00" if "Moderate" in w_rep.overall_environmental_risk else "#1b4332")
+
+        st.markdown(
+            f"""
+            <div style="background-color: #f8faf8; border-left: 6px solid {risk_c}; padding: 16px 22px; border-radius: 8px; margin-bottom: 14px;">
+                <h4 style="margin: 0 0 4px 0; color: {risk_c};">Forecast: {w_rep.overall_environmental_risk}</h4>
+                <p style="margin: 0; color: #2d6a4f;">Microclimate: {w_rep.temperature_c}°C, {w_rep.humidity_pct:.0f}% RH, {w_rep.rainfall_mm}mm rain ({w_rep.cloud_cover})</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if w_rep.high_risk_threats:
+            st.markdown("##### 🔴 High Environmental Risk Pathogens & Pests")
+            for threat in w_rep.high_risk_threats:
+                with st.expander(f"⚠️ {threat.condition_name} (High Microclimatic Risk)", expanded=True):
+                    st.write(f"**Trigger Factors:** {threat.favorable_factors}")
+                    st.info(f"**Proactive Prevention:** {threat.preventive_recommendation}")
+
+        if w_rep.moderate_risk_threats:
+            st.markdown("##### 🟠 Moderate Environmental Risk Threats")
+            for threat in w_rep.moderate_risk_threats:
+                with st.expander(f"ℹ️ {threat.condition_name} (Moderate Risk)"):
+                    st.write(f"**Trigger Factors:** {threat.favorable_factors}")
+                    st.write(f"**Proactive Prevention:** {threat.preventive_recommendation}")
+
+        if w_rep.general_agronomic_advice:
+            st.markdown("##### 🚜 General Weather-Related Field Tips")
+            for adv in w_rep.general_agronomic_advice:
+                st.write(f"• {adv}")
+
+        st.caption(f"ℹ️ {w_rep.disclaimer}")
+
+
+# =============================================================================
+# TAB 7: FIELD GUIDE & DISEASE LIBRARY
 # =============================================================================
 with tab_guide:
-    st.markdown("### 📖 Farmer's Crop Condition Field Guide")
+    st.markdown(f"### {t('tab_guide', lang)}")
     st.write("Browse reference descriptions, symptoms, and verified solutions for all 17 Rice and Maize conditions.")
 
     filter_c1, filter_c2 = st.columns(2)
@@ -911,20 +1145,26 @@ with tab_guide:
         filtered_guide.append((k, v))
 
     for k, v in filtered_guide:
-        icon = "🟢" if v["severity"] == "Healthy" else ("🔴" if v["severity"] == "Critical" else "🟠")
-        with st.expander(f"{icon} {v['crop']} — {v['name']} ({v['category']})"):
-            st.markdown(f"**Symptoms & Nature:** {v['description']}")
+        loc_v = get_localized_advisory(k, v, lang=lang)
+        sev = loc_v.get("severity", v.get("severity", "Moderate"))
+        icon = "🟢" if sev == "Healthy" else ("🔴" if sev == "Critical" else "🟠")
+        disp_name = loc_v['name']
+        disp_crop = loc_v['crop']
+
+        with st.expander(f"{icon} {disp_crop} — {disp_name} ({loc_v.get('category', v['category'])})"):
+            symp_title = "அறிகுறிகள் மற்றும் தன்மை" if lang == "ta" else "Symptoms & Nature"
+            st.markdown(f"**{symp_title}:** {loc_v['description']}")
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("##### 🌿 Organic / Biological Care")
-                for o in v["organic"]:
+                st.markdown(f"##### {t('organic_care', lang)}")
+                for o in loc_v["organic"]:
                     st.markdown(f"- {o}", unsafe_allow_html=True)
             with c2:
-                st.markdown("##### 🧪 Chemical Control")
-                for c in v["chemical"]:
+                st.markdown(f"##### {t('chemical_control', lang)}")
+                for c in loc_v["chemical"]:
                     st.markdown(f"- {c}", unsafe_allow_html=True)
-            st.markdown("##### 🚜 Prevention & Health Recovery")
-            for p in v["prevention"]:
+            st.markdown(f"##### {t('prevention_plan', lang)}")
+            for p in loc_v["prevention"]:
                 st.markdown(f"- {p}", unsafe_allow_html=True)
 
     st.markdown("---")
