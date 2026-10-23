@@ -79,6 +79,7 @@ class Attention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        self.last_attn_map = None
 
     def forward(self, x):
         batch, tokens, dim = x.shape
@@ -89,7 +90,9 @@ class Attention(nn.Module):
         )
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = self.attn_drop(attn.softmax(dim=-1))
+        attn = attn.softmax(dim=-1)
+        self.last_attn_map = attn.detach()
+        attn = self.attn_drop(attn)
         x = (attn @ v).transpose(1, 2).reshape(batch, tokens, dim)
         return self.proj_drop(self.proj(x))
 

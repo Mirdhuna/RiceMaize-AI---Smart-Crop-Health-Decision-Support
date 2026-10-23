@@ -10,7 +10,8 @@ from dataset import IMAGE_SIZE, SPLITS_PATH, load_class_names, load_split_rows
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
-CACHE_DIR = Path("data/cache_224")
+ROOT_DIR = Path(__file__).resolve().parent
+CACHE_DIR = ROOT_DIR / "data" / "cache_224"
 
 
 def cached_image_path(source_path, image_size=IMAGE_SIZE, cache_dir=CACHE_DIR):

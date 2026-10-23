@@ -5,8 +5,9 @@ import random
 from PIL import Image, ImageEnhance, ImageOps
 
 IMAGE_SIZE = 224
-SPLITS_PATH = Path("data/splits.csv")
-CLASS_MAP_PATH = Path("data/class_map.csv")
+ROOT_DIR = Path(__file__).resolve().parent
+SPLITS_PATH = ROOT_DIR / "data" / "splits.csv"
+CLASS_MAP_PATH = ROOT_DIR / "data" / "class_map.csv"
 
 
 def load_split_rows(split, splits_path=SPLITS_PATH):

@@ -1,7 +1,8 @@
 import sys
 from pathlib import Path
+from datetime import date
 
-# Ensure project root is in sys.path even when running from frontend/ directory
+# Ensure project root is in sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -14,12 +15,18 @@ import torch
 from dataset import load_class_names
 from models import build_model
 from torch_dataset import preprocess_pil
+from xai import explain_prediction
+from image_quality import evaluate_image_quality
+from reliability import assess_prediction_reliability, VALIDATION_TEMPERATURE
+from crop_health import assess_crop_health
+from growth_guidance import RICE_GROWTH_STAGES, MAIZE_GROWTH_STAGES, estimate_current_stage
+from yield_estimation import estimate_crop_yield
 
 # -----------------------------------------------------------------------------
-# Page Configuration & Professional Agricultural Styling
+# Page Configuration & Clean Agricultural Styling
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="RiceMaize AI | Smart Crop Health & Diagnostic System",
+    page_title="RiceMaize AI | Smart Agricultural Decision Support",
     page_icon="🌾",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -28,7 +35,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Modern, clean typography & agricultural green palette */
     .main-title {
         font-size: 2.2rem;
         font-weight: 700;
@@ -36,7 +42,7 @@ st.markdown(
         margin-bottom: 0.2rem;
     }
     .sub-title {
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         color: #2d6a4f;
         font-weight: 400;
         margin-bottom: 1.2rem;
@@ -56,7 +62,7 @@ st.markdown(
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         display: inline-block;
     }
     .badge-warning {
@@ -65,7 +71,7 @@ st.markdown(
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         display: inline-block;
     }
     .badge-danger {
@@ -74,22 +80,14 @@ st.markdown(
         padding: 4px 12px;
         border-radius: 20px;
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         display: inline-block;
-    }
-    .treatment-box {
-        background-color: #ffffff;
-        border-left: 4px solid #2d6a4f;
-        padding: 14px 18px;
-        border-radius: 8px;
-        margin-top: 10px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 10px 20px;
+        padding: 10px 18px;
         border-radius: 8px 8px 0 0;
         font-weight: 600;
     }
@@ -99,88 +97,87 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# Advisory & Treatment Database for All 17 Rice & Maize Conditions
+# Verified ICAR / TNAU / IRRI / CIMMYT Agricultural Knowledge Base
 # -----------------------------------------------------------------------------
 ADVISORY_DATABASE = {
     "Maize/Disease/01_maydis_leaf_blight": {
         "crop": "Maize (Corn)",
         "name": "Maydis Leaf Blight",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Bipolaris maydis)",
         "severity": "High",
-        "description": "Fungal infection caused by Bipolaris maydis. Produces small, elongated, rectangular tan lesions between leaf veins. In humid conditions, lesions expand rapidly, scorching foliage and limiting grain filling.",
+        "description": "Produces small, elongated, rectangular tan lesions bounded between veins. Rapidly blights foliage during warm, moist periods.",
         "organic": [
-            "Foliar spray of <b>Trichoderma viride</b> or <b>Pseudomonas fluorescens</b> (10 g/L of water) at the first sight of lesions.",
-            "Apply <b>5% Neem Seed Kernel Extract (NSKE)</b> or neem oil (3 mL/L) with soap emulsifier every 10 days.",
-            "Remove and compost infected lower foliage to reduce local fungal spore load.",
+            "Spray <b>Trichoderma viride</b> (10 g/L) or <b>Pseudomonas fluorescens</b> (5 g/L) upon early symptom appearance.",
+            "Apply <b>5% Neem Seed Kernel Extract (NSKE)</b> or neem oil (3 mL/L) with liquid soap emulsifier.",
+            "Remove and compost infected lower leaves to restrict fungal spore splash.",
         ],
         "chemical": [
-            "Spray <b>Mancozeb 75% WP</b> @ 2.5 g/L of water at early disease onset.",
-            "In severe cases, spray <b>Azoxystrobin 18.2% + Difenoconazole 11.4% SC</b> @ 1 mL/L of water.",
-            "Repeat application after 10–14 days if wet, warm weather continues.",
+            "Foliar spray of <b>Mancozeb 75% WP</b> @ 2.5 g/L of water at early disease onset.",
+            "In severe outbreaks, spray <b>Azoxystrobin 18.2% + Difenoconazole 11.4% SC</b> @ 1 mL/L of water.",
+            "Repeat after 10–14 days if warm, humid weather persists.",
         ],
         "prevention": [
-            "Avoid excessive urea/nitrogen applications which create lush, vulnerable tissues.",
-            "Apply adequate potash (K) to reinforce stalk and leaf epidermal cell walls.",
-            "Practice crop rotation with non-cereal crops (soybeans, pulses) for at least 1–2 seasons.",
-            "Plow down or destroy infected maize stubbles after harvest to destroy overwintering fungal mycelium.",
+            "Avoid excessive single urea top-dressings which promote succulent, disease-prone leaves.",
+            "Apply balanced Potash (MOP) to strengthen stalk and leaf cuticle cells.",
+            "Plow under or compost crop residues immediately after harvest to destroy overwintering mycelium.",
         ],
     },
     "Maize/Disease/02_turcicum_leaf_blight": {
         "crop": "Maize (Corn)",
         "name": "Turcicum Leaf Blight",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Exserohilum turcicum)",
         "severity": "High",
-        "description": "Also known as Northern Corn Leaf Blight, caused by Exserohilum turcicum. Recognized by large, distinct cigar-shaped grayish-tan lesions that appear first on lower leaves before advancing upward.",
+        "description": "Large, distinctive elliptical or cigar-shaped grayish-tan lesions on lower leaves that spread upward into the canopy.",
         "organic": [
-            "Spray bio-fungicide <b>Trichoderma harzianum</b> (5 g/L) mixed with compost tea in the early morning.",
-            "Apply fermented cow urine solution (diluted 1:10) as a natural immune booster and fungal retardant.",
+            "Spray bio-fungicide <b>Trichoderma harzianum</b> (5 g/L) in compost tea during early morning.",
+            "Apply fermented cow urine solution (diluted 1:10) as a natural immune stimulant.",
         ],
         "chemical": [
-            "Spray <b>Carbendazim 12% + Mancozeb 63% WP</b> @ 2 g/L of water.",
-            "Alternatively, apply <b>Pyraclostrobin 20% WG</b> @ 1 g/L of water upon observing the first cigar-shaped lesion.",
+            "Spray <b>Carbendazim 12% + Mancozeb 63% WP</b> @ 2 g/L of water at first sign of cigar lesions.",
+            "Alternatively, apply <b>Pyraclostrobin 20% WG</b> @ 1 g/L of water.",
         ],
         "prevention": [
-            "Maintain recommended plant spacing (60 cm × 20 cm) to allow sunlight penetration and airflow.",
-            "Avoid overhead sprinkler irrigation late in the evening to prevent prolonged leaf wetness.",
-            "Deep summer plowing to bury infested plant debris.",
+            "Maintain proper spacing (60 cm × 20 cm) for air circulation and sunlight penetration.",
+            "Avoid late evening overhead sprinkler irrigation that keeps leaves wet through the night.",
+            "Deep summer plowing to bury fungal debris.",
         ],
     },
     "Maize/Disease/03_curvularia_leaf_spot": {
         "crop": "Maize (Corn)",
         "name": "Curvularia Leaf Spot",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Curvularia lunata)",
         "severity": "Medium",
-        "description": "Fungal leaf spotting caused by Curvularia lunata. Produces small, circular-to-oval spots with yellow halos and dark brown centers, primarily on intermediate and upper leaves.",
+        "description": "Small, circular-to-oval chlorotic spots with brown centers and yellow halos across leaf blades.",
         "organic": [
-            "Spray <b>Bacillus subtilis</b> bio-formulation (5 g/L) to colonize leaf surfaces.",
-            "Apply <b>neem oil (3 mL/L)</b> mixed with liquid soap as an organic preventive film.",
+            "Apply <b>Bacillus subtilis</b> bio-formulation (5 g/L) to colonize leaf surfaces.",
+            "Foliar spray with neem oil (3 mL/L) with soap emulsifier.",
         ],
         "chemical": [
             "Spray <b>Chlorothalonil 75% WP</b> @ 2 g/L or <b>Propiconazole 25% EC</b> @ 1 mL/L.",
         ],
         "prevention": [
-            "Enrich soil with well-rotted Farmyard Manure (FYM) to improve root health.",
-            "Apply Zinc Sulphate (25 kg/ha) if zinc deficiency is observed in the field.",
-            "Ensure field channels prevent stagnant water pools.",
+            "Incorporate well-rotted Farmyard Manure (FYM) to improve soil microbiology.",
+            "Apply Zinc Sulphate (25 kg/ha) if deficiency is identified.",
+            "Maintain unobstructed field drainage channels.",
         ],
     },
     "Maize/Disease/04_sorghum_downy_mildew": {
         "crop": "Maize (Corn)",
         "name": "Sorghum Downy Mildew",
-        "category": "Fungal Disease",
+        "category": "Oomycete / Downy Mildew (Peronosclerospora sorghi)",
         "severity": "Critical",
-        "description": "Caused by Peronosclerospora sorghi. Causes vivid chlorotic (yellowish) striping on leaves, white downy fungal growth on leaf undersides during cool humid mornings, and stunted plant growth ('crazy top').",
+        "description": "Vivid yellow chlorotic striping along leaf veins, downy white fungal growth on lower leaf surfaces, and stunted 'crazy top' growth.",
         "organic": [
-            "Immediately rogue out (uproot) and burn systemically infected chlorotic plants to protect the rest of the field.",
-            "Apply <b>Pseudomonas fluorescens</b> seed treatment before planting.",
+            "Immediately rogue out (uproot) and destroy systemically chlorotic plants to stop spore dispersal.",
+            "Seed treatment with <b>Pseudomonas fluorescens</b> (10 g/kg seed) before sowing.",
         ],
         "chemical": [
-            "Seed treatment with <b>Metalaxyl 35% WS</b> @ 4 g/kg seed before sowing.",
-            "Foliar spray with <b>Metalaxyl-M 4% + Mancozeb 64% WP</b> @ 2.5 g/L at 20 and 30 days after sowing.",
+            "Seed treatment with <b>Metalaxyl 35% WS</b> @ 4 g/kg seed before planting.",
+            "Foliar spray with <b>Metalaxyl-M 4% + Mancozeb 64% WP</b> @ 2.5 g/L at 20 and 30 DAS.",
         ],
         "prevention": [
-            "Strictly rotate fields with pulses or vegetables; avoid planting maize consecutively after sorghum.",
-            "Ensure deep field drainage; avoid low-lying waterlogged patches.",
+            "Rotate fields with pulses or oilseeds; avoid planting maize consecutively after sorghum.",
+            "Avoid sowing in low-lying, poorly drained waterlogged plots.",
         ],
     },
     "Maize/Healthy": {
@@ -188,58 +185,57 @@ ADVISORY_DATABASE = {
         "name": "Healthy Maize Crop",
         "category": "Optimal Health",
         "severity": "Healthy",
-        "description": "Vibrant, deep-green foliage with no signs of fungal lesions, leaf chlorosis, chewing damage, or stalk decay. The plant exhibits robust photosynthetic vigor.",
+        "description": "Vigorous, dark green foliage with clean whorls and no evidence of fungal lesions, chlorosis, or insect chewing.",
         "organic": [
-            "Continue applying vermicompost (2 tons/acre) and biofertilizers (Azospirillum & Phosphobacteria).",
-            "Maintain intercropping with leguminous crops (cowpea or soybean) for natural nitrogen enrichment.",
+            "Apply vermicompost (2 tons/acre) and biofertilizers (Azospirillum & Phosphobacteria).",
+            "Maintain pulse intercropping for natural soil nitrogen fixation.",
         ],
         "chemical": [
-            "No chemical pesticides needed. Maintain regular scouting.",
+            "No chemical pesticides needed. Continue periodic scouting.",
         ],
         "prevention": [
-            "Split nitrogen application: 1/3 at sowing, 1/3 at knee-high stage (30 DAS), and 1/3 at tasseling.",
-            "Maintain consistent soil moisture during critical tasseling and cob filling stages.",
-            "Scout leaf whorls weekly to catch any early signs of fall armyworm egg masses.",
+            "Apply nitrogen in 3 splits (basal, knee-high at 30 DAS, and tasseling).",
+            "Ensure steady soil moisture during critical tasseling and silking periods.",
+            "Scout whorls weekly for early fall armyworm egg clusters.",
         ],
     },
     "Maize/Insect-pests/01_aphid": {
         "crop": "Maize (Corn)",
         "name": "Corn Leaf Aphid",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Rhopalosiphum maidis)",
         "severity": "Medium",
-        "description": "Tiny bluish-green soft-bodied insects clustering inside the leaf whorl, upper leaves, and tassels. They suck sap, weaken developing tassels, and secrete sticky honeydew that fosters black sooty mold.",
+        "description": "Dense colonies of small bluish-green soft-bodied insects inside leaf whorls and tassels, sucking sap and secreting sticky honeydew.",
         "organic": [
-            "Conserve or release predatory ladybird beetles (Coccinella septempunctata) and green lacewings.",
-            "Foliar spray with <b>5% Neem Seed Kernel Extract (NSKE)</b> or agricultural soap solution (5 mL/L).",
+            "Conserve natural predators: ladybird beetles (Coccinella) and green lacewings.",
+            "Spray <b>5% Neem Seed Kernel Extract (NSKE)</b> or agricultural soap solution (5 mL/L).",
         ],
         "chemical": [
-            "If severe (>20% plants infested), spray <b>Thiamethoxam 25% WG</b> @ 0.3 g/L or <b>Dimethoate 30% EC</b> @ 1.7 mL/L.",
+            "If >20% plants show heavy infestation, spray <b>Thiamethoxam 25% WG</b> @ 0.3 g/L or <b>Dimethoate 30% EC</b> @ 1.7 mL/L.",
         ],
         "prevention": [
-            "Clear wild grasses and weed hosts from field boundaries.",
-            "Avoid excessive synthetic nitrogen which causes succulent growth preferred by aphid colonies.",
+            "Remove wild grasses and alternate weed hosts from field borders.",
+            "Avoid excessive urea which produces tender tissues preferred by aphids.",
         ],
     },
     "Maize/Insect-pests/02_fall_armyworm": {
         "crop": "Maize (Corn)",
         "name": "Fall Armyworm (Larva)",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Spodoptera frugiperda)",
         "severity": "Critical",
-        "description": "Highly destructive caterpillar with an inverted 'Y' on its head capsule and 4 square dots on the 8th segment. Devours whorl leaves, cuts tassels, and bores directly into growing cobs.",
+        "description": "Voracious caterpillar with an inverted 'Y' on its head capsule and 4 square dots on segment 8. Chews leaves and bores into whorls and cobs.",
         "organic": [
-            "Install pheromone traps @ 5 traps/acre for early male moth detection.",
-            "Release egg parasitoid <b>Trichogramma pretiosum</b> @ 50,000/ha at early crop stages.",
+            "Install pheromone traps @ 5/acre for adult moth monitoring.",
+            "Release egg parasitoid <b>Trichogramma pretiosum</b> @ 50,000/ha at early emergence.",
             "Whorl application of <b>Metarhizium rileyi</b> or <b>Beauveria bassiana</b> (5 g/L).",
-            "Push-pull intercropping with Desmodium repels moths, while Napier grass borders trap them.",
         ],
         "chemical": [
-            "Direct nozzle spray into the central whorl with <b>Chlorantraniliprole 18.5% SC</b> @ 0.4 mL/L.",
-            "Alternatively, spray <b>Emamectin Benzoate 5% SG</b> @ 0.4 g/L or <b>Spinetoram 11.7% SC</b> @ 0.5 mL/L.",
+            "Direct nozzle spray into central whorls: <b>Chlorantraniliprole 18.5% SC</b> @ 0.4 mL/L.",
+            "Or spray <b>Emamectin Benzoate 5% SG</b> @ 0.4 g/L or <b>Spinetoram 11.7% SC</b> @ 0.5 mL/L.",
         ],
         "prevention": [
-            "Handpick and crush egg masses and young larvae during early crop emergence (10–30 DAS).",
-            "Drop dry sand mixed with neem cake into central whorls to create an abrasive barrier for larvae.",
-            "Synchronize planting dates with neighboring fields to prevent staggered pest breeding.",
+            "Drop dry sand mixed with neem cake into central whorls to create an abrasive barrier for young larvae.",
+            "Handpick egg masses during early seedling emergence (10–30 DAS).",
+            "Synchronize sowing dates across adjacent plots to prevent continuous pest breeding.",
         ],
     },
     "Maize/Insect-pests/03_FAW_symptoms": {
@@ -247,76 +243,76 @@ ADVISORY_DATABASE = {
         "name": "Fall Armyworm Damage Symptoms",
         "category": "Insect Pest Damage",
         "severity": "High",
-        "description": "Characteristic window-paning (scraped papery leaf patches), ragged chewed leaf holes, and dense yellowish-brown sawdust-like frass inside the central leaf whorl.",
+        "description": "Characteristic window-paning (scraped papery leaf patches), ragged holes, and moist yellowish-brown sawdust-like frass inside the whorl.",
         "organic": [
             "Apply fine wood ash or sand mixed with lime (9:1) directly into affected leaf whorls.",
             "Spray <b>Bacillus thuringiensis (Bt kurstaki)</b> @ 2 g/L during late evening hours.",
         ],
         "chemical": [
-            "Apply <b>Emamectin Benzoate 5% SG</b> @ 4 g / 10L water directed straight into the whorls.",
-            "Alternate with <b>Chlorantraniliprole 18.5% SC</b> @ 4 mL / 10L water to prevent chemical resistance.",
+            "Apply <b>Emamectin Benzoate 5% SG</b> @ 4 g/10L water directly into affected whorls.",
+            "Alternate with <b>Chlorantraniliprole 18.5% SC</b> @ 4 mL/10L water to avoid resistance.",
         ],
         "prevention": [
-            "Perform daily morning whorl scouting during the first 45 days after germination.",
-            "Install solar light traps @ 1 trap/acre to capture adult night-flying moths.",
+            "Daily morning whorl inspection during the first 45 days after sowing.",
+            "Install solar light traps @ 1 trap/acre to capture nocturnal moths.",
         ],
     },
     "Rice/Disease/01_Bacterial_leaf_blight": {
         "crop": "Rice (Paddy)",
         "name": "Bacterial Leaf Blight (BLB)",
-        "category": "Bacterial Disease",
+        "category": "Bacterial Disease (Xanthomonas oryzae)",
         "severity": "High",
-        "description": "Caused by Xanthomonas oryzae. Lesions begin as water-soaked stripes at leaf tips and margins, turning yellow to straw-colored with wavy edges. In humid mornings, milky bacterial ooze beads on lesion surfaces.",
+        "description": "Water-soaked stripes at leaf tips and wavy margins turning straw-yellow. Milky bacterial ooze droplets appear on lesions on humid mornings.",
         "organic": [
             "Spray <b>supernatant of fresh cow dung extract (20%)</b> or <b>Pseudomonas fluorescens</b> (5 g/L).",
-            "Temporarily drain standing water from the field for 3–4 days to stop bacterial transmission.",
+            "Temporarily drain standing water for 3–4 days to arrest bacterial spread.",
         ],
         "chemical": [
             "Spray <b>Copper Hydroxide 77% WP</b> @ 2 g/L of water.",
             "Or combine <b>Streptocycline</b> (0.5 g/10L) with <b>Copper Oxychloride 50% WP</b> @ 25 g/10L of water.",
         ],
         "prevention": [
-            "Strictly avoid excessive urea top-dressing during cloudy, humid, or rainy spells.",
+            "Strictly avoid urea top-dressing during cloudy or stormy weather.",
             "Apply potash in two splits (50% basal + 50% at panicle initiation) to strengthen leaf tissue.",
-            "Avoid deep standing water; maintain shallow 2–3 cm depth.",
+            "Maintain shallow 2–3 cm standing water.",
         ],
     },
     "Rice/Disease/02_Brown_spot": {
         "crop": "Rice (Paddy)",
         "name": "Brown Spot Disease",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Helminthosporium oryzae)",
         "severity": "Medium",
-        "description": "Caused by Helminthosporium oryzae. Produces brown, circular-to-oval spots with yellow haloes resembling sesame seeds across leaves and glumes. Strongly associated with nutrient-deficient or poor soils.",
+        "description": "Brown, circular-to-oval spots with gray centers and yellow halos resembling sesame seeds across leaf blades.",
         "organic": [
             "Seed biopriming with <b>Trichoderma asperellum</b> (10 g/kg seed) before nursery sowing.",
-            "Spray <b>5% Neem Seed Kernel Extract (NSKE)</b> or sour fermented buttermilk (50 mL/L).",
+            "Foliar spray with <b>5% Neem Seed Kernel Extract (NSKE)</b>.",
         ],
         "chemical": [
             "Spray <b>Tricyclazole 75% WP</b> @ 0.6 g/L or <b>Propiconazole 25% EC</b> @ 1 mL/L.",
-            "Or apply <b>Mancozeb 75% WP</b> @ 2 g/L at tillering and boot leaf stages.",
+            "Or apply <b>Mancozeb 75% WP</b> @ 2 g/L at tillering and boot leaf stage.",
         ],
         "prevention": [
             "Correct soil nutrient deficiencies: ensure balanced N-P-K (120:40:40 kg/ha).",
             "Apply <b>Zinc Sulphate @ 25 kg/ha</b> at basal stage.",
-            "Incorporate green manure (Dhaincha/Sunn hemp) or farmyard manure before puddling.",
+            "Incorporate green manure (Dhaincha/Sunn hemp) before puddling.",
         ],
     },
     "Rice/Disease/03_False_smut": {
         "crop": "Rice (Paddy)",
         "name": "False Smut Disease",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Ustilaginoidea virens)",
         "severity": "High",
-        "description": "Caused by Ustilaginoidea virens. Transforms developing grains into velvety orange-yellow or dark greenish-black powdery smut balls, reducing grain weight and milling quality.",
+        "description": "Transforms individual rice grains into large velvety green-to-orange powdery spore balls, turning dark greenish-black at maturity.",
         "organic": [
             "Foliar spray with fermented cow urine + ginger-garlic extract (5%) prior to panicle emergence.",
             "Carefully handpick and bag smut balls from affected panicles to prevent field contamination.",
         ],
         "chemical": [
-            "Preventive spray at boot stage (prior to 50% flowering): <b>Copper Oxychloride 50% WP</b> @ 2.5 g/L.",
+            "Preventive spray at boot stage: <b>Copper Oxychloride 50% WP</b> @ 2.5 g/L.",
             "Or spray <b>Tebuconazole 25.9% EC</b> @ 1.5 mL/L or <b>Azoxystrobin + Difenoconazole</b> @ 1 mL/L.",
         ],
         "prevention": [
-            "Avoid excessive or late nitrogen top-dressing after panicle initiation.",
+            "Avoid excessive or late nitrogen application after panicle initiation.",
             "Moderate water drainage during grain filling phase.",
             "Burn or deeply bury infected panicles after harvest.",
         ],
@@ -324,16 +320,16 @@ ADVISORY_DATABASE = {
     "Rice/Disease/04_leaf_sheath_blight": {
         "crop": "Rice (Paddy)",
         "name": "Sheath Blight",
-        "category": "Fungal Disease",
+        "category": "Fungal Disease (Rhizoctonia solani)",
         "severity": "High",
-        "description": "Caused by Rhizoctonia solani. Oval, grayish-green water-soaked lesions appear on lower leaf sheaths near the water surface. Lesions enlarge and coalesce, spreading up into leaves and causing lodging.",
+        "description": "Oval, grayish-green water-soaked lesions on lower leaf sheaths near the water level. Lesions enlarge with dark brown borders and cause lodging.",
         "organic": [
             "Apply <b>Trichoderma viride-enriched FYM</b> (2.5 kg in 50 kg manure per acre) at transplanting.",
-            "Spray <b>Pseudomonas fluorescens</b> (10 g/L) directly targeting the lower stem canopy.",
+            "Spray <b>Pseudomonas fluorescens</b> (10 g/L) targeting lower stem canopy.",
         ],
         "chemical": [
             "Spray <b>Hexaconazole 5% SC</b> @ 2 mL/L or <b>Validamycin 3% L</b> @ 2 mL/L of water.",
-            "Direct the chemical spray toward the lower leaf sheaths near the water level.",
+            "Direct chemical spray toward the lower leaf sheaths near the water level.",
         ],
         "prevention": [
             "Avoid over-dense transplanting; keep spacing at least 20 cm × 15 cm.",
@@ -346,16 +342,16 @@ ADVISORY_DATABASE = {
         "name": "Healthy Rice Crop",
         "category": "Optimal Health",
         "severity": "Healthy",
-        "description": "Vigorous tillers with clean leaf sheaths, rich green upright leaves, and completely free of stem borer boreholes, folded leaves, or discoloration spots.",
+        "description": "Clean, vibrant green upright tillers with no boreholes, folded leaves, or fungal lesions.",
         "organic": [
             "Incorporate Azolla biofertilizer into paddy water (fixes nitrogen and suppresses weeds).",
-            "Use Pseudomonas fluorescens root dip at the seedling transplanting stage.",
+            "Use Pseudomonas fluorescens root dip at seedling transplanting.",
         ],
         "chemical": [
-            "No chemical pesticides needed. Continue periodic field monitoring.",
+            "No chemical pesticides needed. Continue regular field monitoring.",
         ],
         "prevention": [
-            "Adopt Alternate Wetting and Drying (AWD) irrigation: save up to 30% water and promote deep roots.",
+            "Adopt Alternate Wetting and Drying (AWD) irrigation: saves water and strengthens root anchors.",
             "Apply recommended potash split to enhance stem strength against lodging.",
             "Scout for stem borer egg masses on leaf tips every 5–7 days.",
         ],
@@ -363,29 +359,29 @@ ADVISORY_DATABASE = {
     "Rice/Insect-pests/05_Leaf_folder": {
         "crop": "Rice (Paddy)",
         "name": "Rice Leaf Folder",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Cnaphalocrocis medinalis)",
         "severity": "High",
-        "description": "Larva folds leaf edges together with fine silk threads, staying protected inside and scraping green chlorophyll, leaving behind transparent whitish papery streaks.",
+        "description": "Larva folds leaf edges longitudinally with silk threads, scraping green chlorophyll from inside to leave papery white streaks.",
         "organic": [
             "Release egg parasitoid <b>Trichogramma chilonis</b> @ 100,000/ha at 7-day intervals.",
             "Pull a long coir rope across the crop canopy back and forth to dislodge larvae into flood water.",
             "Spray <b>5% Neem Seed Kernel Extract (NSKE)</b>.",
         ],
         "chemical": [
-            "If >10% leaves are folded during vegetative stage, spray <b>Chlorantraniliprole 18.5% SC</b> @ 0.3 mL/L.",
+            "If >10% leaves are folded at vegetative stage, spray <b>Chlorantraniliprole 18.5% SC</b> @ 0.3 mL/L.",
             "Or apply <b>Cartap Hydrochloride 50% SP</b> @ 2 g/L or <b>Flubendiamide 39.35% SC</b> @ 0.2 mL/L.",
         ],
         "prevention": [
-            "Avoid over-application of urea; excess nitrogen causes tender leaves favored by leaf folder moths.",
-            "Clear shaded field edges and weed hosts where moths take shelter during daytime.",
+            "Avoid over-application of urea which creates tender leaves favored by leaf folder moths.",
+            "Clear shaded field edges and weed hosts where moths shelter during daytime.",
         ],
     },
     "Rice/Insect-pests/06_Rice_skipper": {
         "crop": "Rice (Paddy)",
         "name": "Rice Skipper",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Pelopidas mathias)",
         "severity": "Medium",
-        "description": "Green caterpillars that roll single leaf blades or bend leaf tips into tubular chambers, emerging to chew leaf margins and defoliate young tillers.",
+        "description": "Green caterpillars that roll single leaf blades into tubular shelters, emerging to chew leaf margins and defoliate young tillers.",
         "organic": [
             "Manually collect and destroy rolled leaf tips containing caterpillars or pupae.",
             "Install bird perches (T-shaped bamboo sticks, 10/acre) to encourage insectivorous birds.",
@@ -402,16 +398,16 @@ ADVISORY_DATABASE = {
     "Rice/Insect-pests/07_White_stem_borer": {
         "crop": "Rice (Paddy)",
         "name": "White Stem Borer",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Scirpophaga innotata)",
         "severity": "Critical",
-        "description": "Larva bores into the base of the tiller and feeds internally, causing 'Dead Heart' (wilting central shoot) during vegetative stage and 'White Earhead' (empty bleached panicle) at heading stage.",
+        "description": "Larva bores into tiller bases, causing 'Dead Hearts' (wilting central shoot) during tillering and 'White Earhead' (bleached empty panicle) at heading.",
         "organic": [
             "Install sex pheromone traps @ 5 traps/acre for adult moth monitoring and mass trapping.",
-            "Clip the top 2 inches of seedling leaf tips before transplanting to remove deposited egg masses.",
+            "Clip the top 2 cm of seedling leaf tips before transplanting to remove deposited egg masses.",
             "Conserve natural larval parasitoids (Tetrastichus and Bracon species).",
         ],
         "chemical": [
-            "Broadcast <b>Chlorantraniliprole 0.4% GR</b> @ 4 kg/acre or <b>Cartap Hydrochloride 4% GR</b> @ 7.5 kg/acre into 2–3 cm standing water.",
+            "Broadcast <b>Chlorantraniliprole 0.4% GR</b> @ 4 kg/acre or <b>Cartap Hydrochloride 4% GR</b> @ 7.5 kg/acre into standing water.",
             "Or spray <b>Fipronil 5% SC</b> @ 2 mL/L of water at threshold (1 egg mass/sq. meter).",
         ],
         "prevention": [
@@ -422,9 +418,9 @@ ADVISORY_DATABASE = {
     "Rice/Insect-pests/08_Yellow_stem_borer": {
         "crop": "Rice (Paddy)",
         "name": "Yellow Stem Borer",
-        "category": "Insect Pest",
+        "category": "Insect Pest (Scirpophaga incertulas)",
         "severity": "Critical",
-        "description": "Destructive monophagous pest. Larvae bore into stems resulting in 'Dead Hearts' during vegetative tillering and 'Whiteheads' with chaffy, grainless panicles during heading.",
+        "description": "Destructive pest causing 'Dead Hearts' in vegetative stage and 'Whiteheads' with empty panicles at heading.",
         "organic": [
             "Install pheromone traps with <b>Scirpolure septa</b> @ 5 traps/acre.",
             "Install light traps (1/acre) to attract and destroy night-flying female moths.",
@@ -442,7 +438,7 @@ ADVISORY_DATABASE = {
 }
 
 # -----------------------------------------------------------------------------
-# Cached Model Loader & Predictor (Uses Top Performing Trained ViT)
+# Cached Model Loader (Uses Top Performing Trained ViT)
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def get_model():
@@ -461,43 +457,14 @@ def get_model():
     return model, class_names, device
 
 
-def diagnose_image(image: Image.Image):
-    model, class_names, device = get_model()
-    tensor = preprocess_pil(image).unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = torch.softmax(logits, dim=1).squeeze(0)
-
-    confidence, pred_idx = probs.max(dim=0)
-    raw_class = class_names[int(pred_idx)]
-    conf_score = float(confidence) * 100.0
-
-    advisory = ADVISORY_DATABASE.get(
-        raw_class,
-        {
-            "crop": raw_class.split("/")[0],
-            "name": raw_class.split("/")[-1].replace("_", " ").title(),
-            "category": "Unknown",
-            "severity": "Medium",
-            "description": "Condition detected by visual analysis.",
-            "organic": ["Apply neem oil spray and maintain soil health."],
-            "chemical": ["Consult local agricultural officer for specific chemical advice."],
-            "prevention": ["Maintain balanced NPK fertilization and clean drainage."],
-        },
-    )
-
-    return advisory, conf_score, raw_class
-
-
 # -----------------------------------------------------------------------------
-# Header — 2-Line Farmer-Centric Overview
+# Header — 2-Line Overview
 # -----------------------------------------------------------------------------
-st.markdown('<div class="main-title">🌾 RiceMaize AI — Smart Crop Health & Diagnostic System</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🌾 RiceMaize AI — Smart Crop Health & Decision Support</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-title">'
-    'Empowering farmers with AI-powered crop health diagnostics for Rice and Maize.<br>'
-    'Upload a field photo of your crop leaf or pest to receive instant diagnosis, treatment solutions, and recovery recommendations.'
+    'Empowering farmers with AI-powered crop diagnostics, visual explanations, and verified agronomic support.<br>'
+    'Upload a crop photo to receive instant diagnosis, reliability analysis, treatment solutions, and growth guidance.'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -505,19 +472,25 @@ st.markdown(
 # -----------------------------------------------------------------------------
 # Main Navigation Tabs
 # -----------------------------------------------------------------------------
-tab_diag, tab_guide, tab_tips = st.tabs(
-    ["📸 Instant Crop Diagnosis", "📖 Field Guide & Disease Library", "🌱 Agronomy & Best Practices"]
+tab_diag, tab_health, tab_growth, tab_yield, tab_guide = st.tabs(
+    [
+        "📸 Instant Diagnosis & Explainable AI",
+        "🩺 Crop Health Assessment",
+        "🌱 Growth Stage Agronomy",
+        "📊 Yield & Production Estimator",
+        "📖 Field Guide & Library",
+    ]
 )
 
 # =============================================================================
-# TAB 1: INSTANT CROP DIAGNOSIS
+# TAB 1: INSTANT CROP DIAGNOSIS & EXPLAINABLE AI
 # =============================================================================
 with tab_diag:
     col_input, col_result = st.columns([1, 1.2], gap="large")
 
     with col_input:
         st.markdown("### 📤 Upload Crop Photo")
-        st.write("Take a clear, well-lit photo of the affected leaf, stem, or pest.")
+        st.write("Upload a clear, well-lit photo of the affected plant leaf, stem, or pest.")
 
         uploaded_file = st.file_uploader(
             "Choose a leaf or pest photo",
@@ -528,7 +501,7 @@ with tab_diag:
 
         st.markdown("---")
         st.markdown("#### 🧪 Or Test With a Sample Photo")
-        
+
         sample_options = {
             "Select a sample image...": None,
             "🌾 Rice - Healthy Leaf": ROOT_DIR / "Dataset/Rice/Healthy/0c60af21-42a0-4e69-b957-a101c6a7d5c0.Jpg",
@@ -538,7 +511,7 @@ with tab_diag:
             "🌽 Maize - Fall Armyworm Symptoms": ROOT_DIR / "Dataset/Maize/Insect-pests/03_FAW_symptoms/0a2ff911-3957-41a4-927a-85d7f3001899.Jpg",
             "🌽 Maize - Maydis Leaf Blight": ROOT_DIR / "Dataset/Maize/Disease/01_maydis_leaf_blight/01b33a7e-ada2-4963-a011-b6fbb6486912.Jpg",
         }
-        
+
         selected_sample_label = st.selectbox(
             "Choose sample:",
             list(sample_options.keys()),
@@ -550,36 +523,88 @@ with tab_diag:
 
         if uploaded_file is not None:
             active_image = Image.open(uploaded_file).convert("RGB")
-            st.image(active_image, caption="Uploaded Field Photo", use_container_width=True)
         elif selected_sample_path and Path(selected_sample_path).exists():
             active_image = Image.open(selected_sample_path).convert("RGB")
-            st.image(active_image, caption=f"Sample: {selected_sample_label}", use_container_width=True)
+
+        if active_image is not None:
+            # Feature 3: Image Quality Validation
+            quality_rep = evaluate_image_quality(active_image)
+
+            if quality_rep.status == "Good Quality":
+                st.success(f"✅ **Image Quality**: {quality_rep.status} (Sharpness: {quality_rep.metrics['sharpness_laplacian']:.0f})")
+            elif quality_rep.status == "Borderline / Quality Warning":
+                st.warning(f"⚠️ **Image Quality Notice**: {quality_rep.status}")
+                with st.expander("View Quality Suggestions"):
+                    for iss in quality_rep.issues:
+                        st.write(f"• {iss}")
+                    for tip in quality_rep.recommendations:
+                        st.info(f"💡 {tip}")
+            else:
+                st.error(f"❌ **Image Quality Unsuitable**: {quality_rep.status}")
+                for iss in quality_rep.issues:
+                    st.write(f"• {iss}")
+                for tip in quality_rep.recommendations:
+                    st.warning(f"💡 {tip}")
 
     with col_result:
-        st.markdown("### 📋 Diagnostic Result & Action Plan")
+        st.markdown("### 📋 Diagnostic Result & Reliability")
 
         if active_image is None:
-            st.info(
-                "👈 **Please upload a crop leaf image** or select one of the sample photos on the left to view the diagnosis and treatment advice."
-            )
+            st.info("👈 **Upload an image or pick a sample photo** on the left to begin diagnosis.")
             st.markdown(
                 """
                 <div style="background-color: #f8faf8; border-radius: 10px; padding: 20px; border: 1px dashed #b7e4c7; color: #52796f;">
                     <b>💡 Tips for Best Diagnostic Accuracy:</b>
                     <ul>
-                        <li>Take close-up photos focusing directly on the leaf spots, lesions, or insects.</li>
-                        <li>Ensure natural daylight and avoid intense direct glare or heavy shadows.</li>
-                        <li>Avoid blurry photos; keep the phone camera steady before clicking.</li>
+                        <li>Capture the diseased leaf blade or pest clearly in diffuse natural daylight.</li>
+                        <li>Avoid blurry photos; hold camera steady 15–20 cm away.</li>
+                        <li>Keep both healthy and diseased margins visible on the leaf.</li>
                     </ul>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
         else:
-            with st.spinner("Analyzing leaf symptoms and matching agricultural database..."):
-                advisory, conf, raw_class = diagnose_image(active_image)
+            with st.spinner("Analyzing image features and evaluating reliability..."):
+                model, class_names, device = get_model()
+                tensor = preprocess_pil(active_image).unsqueeze(0).to(device)
 
-            # Determine badge styling based on severity
+                with torch.no_grad():
+                    logits = model(tensor)
+
+                # Feature 2: Reliability & Validation Temperature Calibration
+                rel_rep = assess_prediction_reliability(
+                    logits=logits,
+                    class_names=class_names,
+                    temperature=VALIDATION_TEMPERATURE,
+                    top_k=3,
+                )
+
+                raw_class = rel_rep.predicted_class
+                advisory = ADVISORY_DATABASE.get(
+                    raw_class,
+                    {
+                        "crop": raw_class.split("/")[0],
+                        "name": raw_class.split("/")[-1].replace("_", " ").title(),
+                        "category": "Agricultural Condition",
+                        "severity": "Medium",
+                        "description": "Identified by agricultural visual recognition.",
+                        "organic": ["Apply neem oil spray and maintain soil aeration."],
+                        "chemical": ["Consult local agricultural officer for specific advice."],
+                        "prevention": ["Maintain balanced NPK fertilization and clean drainage."],
+                    },
+                )
+
+                # Feature 1: Explainable AI Attribution
+                explained_img, xai_caption = explain_prediction(
+                    model=model,
+                    model_type="vit",
+                    tensor=tensor,
+                    original_image=active_image,
+                    target_class=class_names.index(raw_class),
+                )
+
+            # Badge styling
             if advisory["severity"] == "Healthy":
                 badge_html = '<span class="badge-healthy">🟢 HEALTHY CROP — VIGOROUS</span>'
             elif advisory["severity"] == "Critical":
@@ -587,145 +612,320 @@ with tab_diag:
             else:
                 badge_html = '<span class="badge-warning">🟠 ATTENTION REQUIRED — ACTIVE CONDITION</span>'
 
-            # Diagnostic summary card (NO raw models, NO raw debug data)
+            # Result card
             st.markdown(
                 f"""
                 <div class="metric-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <span style="font-size: 1.1rem; font-weight: 600; color: #1b4332;">{advisory['crop']}</span>
+                        <span style="font-size: 1.15rem; font-weight: 600; color: #1b4332;">{advisory['crop']}</span>
                         {badge_html}
                     </div>
                     <div style="font-size: 1.6rem; font-weight: 700; color: #081c15; margin-bottom: 4px;">
                         {advisory['name']}
                     </div>
-                    <div style="font-size: 0.95rem; color: #40916c; font-weight: 500; margin-bottom: 12px;">
-                        Category: {advisory['category']}
+                    <div style="font-size: 0.95rem; color: #40916c; font-weight: 500; margin-bottom: 8px;">
+                        Nature: {advisory['category']}
                     </div>
-                    <div style="margin-bottom: 6px; font-size: 0.9rem; color: #2d6a4f;">
-                        <b>Diagnostic Confidence:</b> {conf:.1f}%
+                    <div style="font-size: 0.9rem; color: #2d6a4f; margin-bottom: 4px;">
+                        <b>Calibrated Confidence:</b> {rel_rep.calibrated_confidence:.1f}% &nbsp;•&nbsp; 
+                        <b>Reliability Status:</b> <i>{rel_rep.reliability_level}</i>
                     </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            st.progress(min(conf / 100.0, 1.0))
+            st.progress(min(rel_rep.calibrated_confidence / 100.0, 1.0))
 
-            st.markdown(f"**Condition Overview:** {advisory['description']}")
+            # Feature 2: Cautionary Notice / Uncertainty Warning
+            if rel_rep.warning_notice:
+                st.warning(rel_rep.warning_notice)
 
-            # Treatment and Improvement Tabs
+            # Feature 2: Top-3 candidate predictions
+            with st.expander("📊 View Top-3 Model Candidates (Calibrated Probabilities)"):
+                for rank, (cand_name, cand_prob) in enumerate(rel_rep.top_predictions, start=1):
+                    cand_display = cand_name.split("/")[-1].replace("_", " ")
+                    st.write(f"**{rank}. {cand_name.split('/')[0]} — {cand_display}**: `{cand_prob:.1f}%`")
+
+            # Feature 1: Side-by-side Visual Explanation
+            st.markdown("#### 🔍 Explainable AI (Visual Focus Heatmap)")
+            col_orig, col_xai = st.columns(2)
+            with col_orig:
+                st.image(active_image, caption="Original Uploaded Photo", use_container_width=True)
+            with col_xai:
+                if explained_img is not None:
+                    st.image(explained_img, caption="AI Attribution Heatmap (Warm = Strongest Focus)", use_container_width=True)
+                else:
+                    st.caption("Visual explanation could not be generated.")
+
+            st.caption(
+                "ℹ️ **Interpretability Notice**: Warm red/yellow highlighted zones indicate leaf areas that most influenced "
+                "the model's prediction. This visualization aids human verification and does not constitute microbiological proof."
+            )
+
+            # Feature 4: Verified Treatment & Advisory Tabs
             treat_tab1, treat_tab2, treat_tab3 = st.tabs(
-                ["🌿 Organic & Biological Remedies", "🧪 Chemical Treatment", "🚜 Health Improvement & Prevention"]
+                ["🌿 Organic & Biological Care", "🧪 Chemical Control", "🚜 Prevention & Field Recovery"]
             )
 
             with treat_tab1:
-                st.markdown("#### 🌿 Eco-Friendly & Biological Solutions")
-                st.write("Safe for soil, beneficial pollinators, and human health:")
+                st.markdown("##### 🌿 Organic, Cultural & Biological Remedies")
+                st.write("Safe for soil ecology, pollinators, and beneficial insects:")
                 for item in advisory["organic"]:
                     st.markdown(f"• {item}", unsafe_allow_html=True)
 
             with treat_tab2:
-                st.markdown("#### 🧪 Targeted Chemical Treatments")
-                st.write("Recommended if condition is severe or spreading across field plots:")
+                st.markdown("##### 🧪 Recommended Chemical Treatments")
+                st.write("Targeted options for severe infections or threshold-exceeding outbreaks:")
                 for item in advisory["chemical"]:
                     st.markdown(f"• {item}", unsafe_allow_html=True)
-                st.caption("⚠️ Always adhere to safety labels, wear protective gear, and follow pre-harvest intervals.")
+                st.warning("⚠️ **Safety Notice**: Adhere to manufacturer label dosages, pre-harvest intervals (PHI), and wear protective gloves/masks.")
 
             with treat_tab3:
-                st.markdown("#### 🚜 Plant Health & Soil Recovery Suggestions")
-                st.write("Actions to strengthen crop immunity and prevent recurring outbreaks:")
+                st.markdown("##### 🚜 Agronomic Recovery & Prevention")
+                st.write("Prevent pathogen recurrence and enhance plant resilience:")
                 for item in advisory["prevention"]:
                     st.markdown(f"• {item}", unsafe_allow_html=True)
 
 
 # =============================================================================
-# TAB 2: FIELD GUIDE & DISEASE LIBRARY
+# TAB 2: CROP HEALTH ASSESSMENT (FEATURE 5)
+# =============================================================================
+with tab_health:
+    st.markdown("### 🩺 Multi-Factor Crop Health Assessment")
+    st.write(
+        "Synthesize visual diagnostic findings with your real-time field observations "
+        "(crop stage, field spread percentage, and microclimate conditions) to assess overall crop health risk."
+    )
+
+    col_h_in1, col_h_in2 = st.columns(2)
+
+    with col_h_in1:
+        h_crop = st.selectbox("Select Crop Type:", ["Rice (Paddy)", "Maize (Corn)"], key="h_crop")
+        h_condition = st.selectbox(
+            "Current Observed / Diagnosed Condition:",
+            list(ADVISORY_DATABASE.keys()),
+            format_func=lambda x: f"{x.split('/')[0]} — {ADVISORY_DATABASE[x]['name']}",
+            key="h_cond",
+        )
+        h_confidence = st.slider("Diagnostic Confidence (%):", min_value=10, max_value=100, value=85, step=5)
+
+    with col_h_in2:
+        h_stage = st.selectbox(
+            "Current Crop Growth Stage:",
+            [
+                "Seedling / Nursery",
+                "Active Vegetative / Tillering",
+                "Panicle Initiation / Knee-High",
+                "Flowering / Heading / Tasseling",
+                "Grain / Cob Filling",
+                "Maturity",
+            ],
+            key="h_stage",
+        )
+        h_spread = st.selectbox(
+            "Estimated Field Area Affected:",
+            [
+                "Isolated / Few Plants (<5%)",
+                "Patchy / Localized Spots (5% – 20%)",
+                "Widespread / Severe (>20%)",
+            ],
+            key="h_spread",
+        )
+        h_weather = st.selectbox(
+            "Recent Weather Over Past 7 Days:",
+            [
+                "Moderate / Normal Sunlight",
+                "Heavy Rain / High Humidity / Cloud Cover",
+                "Hot & Dry / Water Stress",
+            ],
+            key="h_weather",
+        )
+
+    if st.button("Generate Crop Health Assessment Report", type="primary"):
+        health_rep = assess_crop_health(
+            predicted_class=h_condition,
+            confidence=float(h_confidence),
+            crop_stage=h_stage,
+            spread_level=h_spread,
+            weather_condition=h_weather,
+        )
+
+        st.markdown("---")
+        st.markdown("#### 📑 Field Health Evaluation Summary")
+
+        risk_color = "#1b4332" if health_rep.risk_level == "Low" else ("#e63946" if health_rep.risk_level in ("High", "Critical") else "#f77f00")
+
+        st.markdown(
+            f"""
+            <div style="background-color: #f8faf8; border-left: 6px solid {risk_color}; padding: 18px 24px; border-radius: 8px; margin-bottom: 16px;">
+                <h4 style="margin: 0 0 6px 0; color: {risk_color};">Status: {health_rep.health_status} (Risk Level: {health_rep.risk_level})</h4>
+                <p style="margin: 0; color: #2d6a4f; font-size: 1.05rem;">{health_rep.summary}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            st.markdown("##### 🔎 Contributing Field Observations")
+            for f in health_rep.contributing_factors:
+                st.write(f"• {f}")
+        with col_f2:
+            st.markdown("##### 📋 Recommended Next Steps")
+            for a in health_rep.recommended_actions:
+                st.write(f"• {a}")
+
+        st.caption(f"ℹ️ {health_rep.limitations_disclaimer}")
+
+
+# =============================================================================
+# TAB 3: GROWTH STAGE AGRONOMY (FEATURE 6)
+# =============================================================================
+with tab_growth:
+    st.markdown("### 🌱 Crop-Stage Agronomy & Growth Guidance")
+    st.write("Verified stage-by-stage agronomic advisories based on ICAR, TNAU, and IRRI best practices.")
+
+    g_col1, g_col2 = st.columns([1, 1.5], gap="large")
+
+    with g_col1:
+        st.markdown("#### 📅 Stage Calculator")
+        g_crop = st.radio("Choose Crop:", ["Rice (Paddy)", "Maize (Corn)"], horizontal=True)
+        sow_date = st.date_input("Sowing / Transplanting Date:", value=date.today())
+
+        current_stage = estimate_current_stage(g_crop, sow_date)
+        if current_stage is not None:
+            st.success(f"🌾 **Estimated Stage**: {current_stage.stage_name}")
+            st.caption(f"Estimated timeframe: {current_stage.duration_days}")
+
+    with g_col2:
+        st.markdown(f"#### 📖 Detailed Agronomy Guide ({g_crop})")
+        stages_list = RICE_GROWTH_STAGES if "Rice" in g_crop else MAIZE_GROWTH_STAGES
+
+        for stage in stages_list:
+            is_active = (current_stage is not None and stage.stage_name == current_stage.stage_name)
+            expander_title = f"{'⭐ [CURRENT] ' if is_active else ''}{stage.stage_name} ({stage.duration_days})"
+
+            with st.expander(expander_title, expanded=is_active):
+                st.markdown(f"**💧 Irrigation & Water Management:**<br>{stage.irrigation_advice}", unsafe_allow_html=True)
+                st.markdown(f"**🌱 Nutrient & Fertilizer Scheduling:**<br>{stage.nutrient_management}", unsafe_allow_html=True)
+                st.markdown(f"**🌿 Weed Management:**<br>{stage.weed_control}", unsafe_allow_html=True)
+                st.markdown(f"**🐛 Pest & Disease Vigilance:**<br>{stage.pest_disease_watch}", unsafe_allow_html=True)
+                st.markdown("**⭐ Good Agricultural Practices:**")
+                for bp in stage.best_practices:
+                    st.write(f"• {bp}")
+
+
+# =============================================================================
+# TAB 4: CROP YIELD & PRODUCTION ESTIMATOR (FEATURE 7)
+# =============================================================================
+with tab_yield:
+    st.markdown("### 📊 Crop Yield & Production Estimator (ML Regression)")
+    st.write(
+        "A separate machine learning regression module trained on historical district-level agricultural data "
+        "to estimate expected yield (Tonnes/Ha) and total production (Tonnes) based on agro-climatic inputs."
+    )
+
+    y_col1, y_col2 = st.columns(2)
+
+    with y_col1:
+        y_state = st.selectbox(
+            "State / Agro-Climatic Region:",
+            ["Punjab", "Tamil Nadu", "Andhra Pradesh", "Telangana", "Karnataka", "West Bengal", "Bihar", "Uttar Pradesh", "Madhya Pradesh", "Maharashtra"],
+        )
+        y_crop = st.selectbox("Crop:", ["Rice", "Maize"])
+        y_season = st.selectbox("Season:", ["Kharif", "Rabi", "Summer"])
+        y_area = st.number_input("Cultivated Area (Hectares):", min_value=0.1, max_value=50000.0, value=5.0, step=0.5)
+
+    with y_col2:
+        y_rainfall = st.slider("Seasonal Rainfall (mm):", min_value=150.0, max_value=2500.0, value=850.0, step=25.0)
+        y_fertilizer = st.slider("Fertilizer Application (Total NPK kg/ha):", min_value=40.0, max_value=300.0, value=140.0, step=10.0)
+        y_irrig = st.slider("Area Under Assured Irrigation (%):", min_value=10.0, max_value=100.0, value=85.0, step=5.0)
+
+    if st.button("Calculate Yield & Production Estimate", type="primary"):
+        with st.spinner("Running regression model..."):
+            y_res = estimate_crop_yield(
+                state=y_state,
+                crop=y_crop,
+                season=y_season,
+                area_hectares=float(y_area),
+                annual_rainfall_mm=float(y_rainfall),
+                fertilizer_npk_kg_ha=float(y_fertilizer),
+                irrigation_pct=float(y_irrig),
+            )
+
+        st.markdown("---")
+        st.markdown("#### 📈 Model Estimation Output")
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric(
+                label="Estimated Yield per Hectare",
+                value=f"{y_res.predicted_yield_per_ha:.2f} T/ha",
+                help=f"Expected 90% range: {y_res.yield_lower_bound:.2f} – {y_res.yield_upper_bound:.2f} Tonnes/Hectare",
+            )
+            st.caption(f"Confidence Range: `{y_res.yield_lower_bound:.2f} – {y_res.yield_upper_bound:.2f} T/ha`")
+
+        with m2:
+            st.metric(
+                label=f"Total Production ({y_res.area_hectares} ha)",
+                value=f"{y_res.predicted_total_production:,.1f} Tonnes",
+                help=f"Expected 90% range: {y_res.production_lower_bound:,.1f} – {y_res.production_upper_bound:,.1f} Tonnes",
+            )
+            st.caption(f"Production Range: `{y_res.production_lower_bound:,.1f} – {y_res.production_upper_bound:,.1f} Tonnes`")
+
+        with m3:
+            st.metric(
+                label="Regression Model R²",
+                value=f"{y_res.model_r2_score:.3f}",
+                help=f"Test Set MAE: {y_res.model_mae:.3f} Tonnes/Hectare",
+            )
+            st.caption(f"Test MAE: `{y_res.model_mae:.3f} T/ha`")
+
+        st.info(f"ℹ️ {y_res.limitations_note}")
+
+
+# =============================================================================
+# TAB 5: FIELD GUIDE & DISEASE LIBRARY
 # =============================================================================
 with tab_guide:
     st.markdown("### 📖 Farmer's Crop Condition Field Guide")
-    st.write("Browse reference descriptions, identification symptoms, and solutions for all 17 Rice and Maize conditions.")
+    st.write("Browse reference descriptions, symptoms, and verified solutions for all 17 Rice and Maize conditions.")
 
-    filter_col1, filter_col2 = st.columns([1, 1])
-    with filter_col1:
-        crop_filter = st.selectbox("Filter by Crop:", ["All Crops", "Rice (Paddy)", "Maize (Corn)"])
-    with filter_col2:
-        cat_filter = st.selectbox("Filter by Category:", ["All Categories", "Fungal Disease", "Bacterial Disease", "Insect Pest", "Optimal Health"])
+    filter_c1, filter_c2 = st.columns(2)
+    with filter_c1:
+        crop_sel = st.selectbox("Filter by Crop:", ["All Crops", "Rice (Paddy)", "Maize (Corn)"], key="fg_crop")
+    with filter_c2:
+        cat_sel = st.selectbox("Filter by Category:", ["All Categories", "Fungal Disease", "Bacterial Disease", "Insect Pest", "Optimal Health"], key="fg_cat")
 
     st.markdown("---")
 
-    filtered_items = []
-    for key, data in ADVISORY_DATABASE.items():
-        if crop_filter != "All Crops":
-            target_prefix = "Rice" if "Rice" in crop_filter else "Maize"
-            if not data["crop"].startswith(target_prefix):
+    filtered_guide = []
+    for k, v in ADVISORY_DATABASE.items():
+        if crop_sel != "All Crops":
+            pfx = "Rice" if "Rice" in crop_sel else "Maize"
+            if not v["crop"].startswith(pfx):
                 continue
-        if cat_filter != "All Categories":
-            if cat_filter not in data["category"]:
+        if cat_sel != "All Categories":
+            if cat_sel not in v["category"]:
                 continue
-        filtered_items.append((key, data))
+        filtered_guide.append((k, v))
 
-    if not filtered_items:
-        st.warning("No conditions match your selected filters.")
-    else:
-        for key, data in filtered_items:
-            severity_icon = "🟢" if data["severity"] == "Healthy" else ("🔴" if data["severity"] == "Critical" else "🟠")
-            with st.expander(f"{severity_icon} {data['crop']} — {data['name']} ({data['category']})"):
-                st.markdown(f"**Symptoms & Nature:** {data['description']}")
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("##### 🌿 Organic / Biological Care")
-                    for o in data["organic"]:
-                        st.markdown(f"- {o}", unsafe_allow_html=True)
-                with c2:
-                    st.markdown("##### 🧪 Chemical Control")
-                    for c in data["chemical"]:
-                        st.markdown(f"- {c}", unsafe_allow_html=True)
-
-                st.markdown("##### 🚜 Prevention & Health Improvement")
-                for p in data["prevention"]:
-                    st.markdown(f"- {p}", unsafe_allow_html=True)
-
-
-# =============================================================================
-# TAB 3: AGRONOMY & BEST PRACTICES
-# =============================================================================
-with tab_tips:
-    st.markdown("### 🌱 Good Agricultural Practices (GAP)")
-    st.write("General guidelines for maintaining robust crop immunity, reducing input costs, and preventing disease outbreaks.")
-
-    col_ag1, col_ag2 = st.columns(2, gap="medium")
-
-    with col_ag1:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4 style="color: #1b4332; margin-top: 0;">🌾 Rice Agronomy Essentials</h4>
-                <ul>
-                    <li><b>Alternate Wetting & Drying (AWD):</b> Rather than continuous deep flooding, allow water to naturally subside before re-irrigating. This saves 25–30% water and aerates root zones, reducing sheath blight and root rot.</li>
-                    <li><b>Balanced Potash (K):</b> Potash strengthens the stem cuticle, making it harder for stem borers to penetrate and preventing crop lodging during maturity.</li>
-                    <li><b>Prevent Nitrogen Spikes:</b> Heavy single doses of urea trigger sudden vegetative flushes with soft cell walls, heavily encouraging Leaf Blast and Bacterial Leaf Blight. Split nitrogen into 3–4 applications.</li>
-                    <li><b>Seedling Tip Clipping:</b> Trimming the top 2 cm of rice seedlings prior to transplanting removes over 80% of yellow and white stem borer egg clusters deposited in nurseries.</li>
-                </ul>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col_ag2:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4 style="color: #1b4332; margin-top: 0;">🌽 Maize Agronomy Essentials</h4>
-                <ul>
-                    <li><b>Optimal Plant Spacing:</b> Maintain 60 cm row-to-row and 20 cm plant-to-plant distance. Overcrowded fields create a humid microclimate that triggers Maydis and Turcicum leaf blights.</li>
-                    <li><b>Early Whorl Scouting for FAW:</b> Inspect 20 plants across 5 spots in the field weekly between 10 to 40 days after emergence. Look for window-paning on young leaves.</li>
-                    <li><b>Intercropping Benefits:</b> Intercropping maize with pulses (cowpea, black gram) fixes atmospheric nitrogen, suppresses weeds, and breaks the life cycle of specialized maize pests.</li>
-                    <li><b>Critical Moisture Stages:</b> Water stress during tasseling and silking directly hampers pollination and ear formation. Prioritize irrigation during these two weeks.</li>
-                </ul>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    for k, v in filtered_guide:
+        icon = "🟢" if v["severity"] == "Healthy" else ("🔴" if v["severity"] == "Critical" else "🟠")
+        with st.expander(f"{icon} {v['crop']} — {v['name']} ({v['category']})"):
+            st.markdown(f"**Symptoms & Nature:** {v['description']}")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("##### 🌿 Organic / Biological Care")
+                for o in v["organic"]:
+                    st.markdown(f"- {o}", unsafe_allow_html=True)
+            with c2:
+                st.markdown("##### 🧪 Chemical Control")
+                for c in v["chemical"]:
+                    st.markdown(f"- {c}", unsafe_allow_html=True)
+            st.markdown("##### 🚜 Prevention & Health Recovery")
+            for p in v["prevention"]:
+                st.markdown(f"- {p}", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown(
@@ -733,7 +933,7 @@ with tab_tips:
         <div style="background-color: #edf6f9; border-radius: 10px; padding: 18px 24px; border-left: 5px solid #0077b6;">
             <h4 style="color: #03045e; margin-top: 0;">📞 Emergency Farmer Advisory & Assistance</h4>
             <p style="margin-bottom: 6px; color: #023e8a;">
-                If disease outbreaks or pest infestations exceed 20% of your field area, contact your nearest Krishi Vigyan Kendra (KVK) or the National Kisan Call Center:
+                If disease outbreaks or pest infestations exceed economic threshold in your area, contact your local Krishi Vigyan Kendra (KVK) or the National Kisan Call Center:
             </p>
             <b style="font-size: 1.1rem; color: #03045e;">Toll-Free Kisan Call Center: 1800-180-1551</b> (Operational 6:00 AM to 10:00 PM daily)
         </div>

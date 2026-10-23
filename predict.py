@@ -9,6 +9,9 @@ from models import HybridEnsemble, build_model
 from torch_dataset import load_image_tensor
 
 
+ROOT_DIR = Path(__file__).resolve().parent
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Predict a rice or maize image")
     parser.add_argument("image", type=Path)
@@ -18,8 +21,10 @@ def parse_args():
         default="hybrid",
         help="Which trained system to use",
     )
-    parser.add_argument("--checkpoints", type=Path, default=Path("checkpoints"))
+    parser.add_argument("--checkpoints", type=Path, default=ROOT_DIR / "checkpoints")
     parser.add_argument("--top-k", type=int, default=3)
+    parser.add_argument("--xai", action="store_true", help="Generate Explainable AI visual attribution overlay")
+    parser.add_argument("--save-xai", type=Path, default=None, help="Path to save the generated explanation overlay image")
     return parser.parse_args()
 
 
@@ -75,6 +80,25 @@ def main():
     print("Top predictions:")
     for score, index in zip(topk.values, topk.indices):
         print("  {:6.2f}%  {}".format(float(score) * 100, class_names[int(index)]))
+
+    if args.xai or args.save_xai is not None:
+        from PIL import Image
+        from xai import explain_prediction
+
+        orig_img = Image.open(args.image)
+        explained_img, caption = explain_prediction(
+            model=model,
+            model_type=args.model,
+            tensor=tensor,
+            original_image=orig_img,
+            target_class=int(predicted),
+        )
+        print("\n--- Explainable AI (XAI) Attribution ---")
+        print(caption)
+        if explained_img is not None:
+            save_path = args.save_xai or Path(f"{args.image.stem}_{args.model}_xai.jpg")
+            explained_img.save(save_path)
+            print(f"Explanation overlay saved to: {save_path}")
 
 
 if __name__ == "__main__":
