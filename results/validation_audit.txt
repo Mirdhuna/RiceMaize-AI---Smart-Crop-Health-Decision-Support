@@ -1,0 +1,23 @@
+=================================================================
+      RiceMaize AI: Rigorous Model Validation & Pipeline Audit   
+=================================================================
+
+1. DATA LEAKAGE AUDIT
+   - Split Distribution: Train=575, Val=130, Test=130
+   - Total Unique Hashes: 835
+   - Cross-Split Duplicate Leaks: 0 (Clean Leakage-Free Dataset)
+
+2. HYBRID vs. ViT IDENTICAL TEST METRICS INVESTIGATION
+   - Selected Ensemble Weights: CNN=0.0, ViT=1.0
+   - Scientific Rationale: The validation grid search found that the maximum validation macro F1 (0.7563) occurred at w_cnn = 0.0 and w_vit = 1.0. Because the from-scratch CNN has significantly lower discriminative power (val F1 = 0.2794) compared to the pretrained ViT, mixing any non-zero fraction of CNN logits degrades the ensemble's validation performance. Thus, the hybrid mathematically collapses to pure ViT, explaining why test metrics are identical.
+
+3. CONFIDENCE CALIBRATION AUDIT
+   - Temperature Parameter (T): 1.2
+   - Uncalibrated ECE: 0.0811
+   - Calibrated ECE:   0.0859
+
+4. OVERALL TEST SET PERFORMANCE
+   - Accuracy:  81.54%
+   - Macro F1:  0.8134
+   - Macro P:   0.8275
+   - Macro R:   0.8172

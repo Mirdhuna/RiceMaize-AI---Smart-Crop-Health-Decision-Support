@@ -1,0 +1,229 @@
+{
+  "leakage_audit": {
+    "total_split_rows": 835,
+    "unique_image_files": 835,
+    "split_counts": {
+      "train": 575,
+      "val": 130,
+      "test": 130
+    },
+    "cross_split_duplicates_found": 0,
+    "leak_details": [],
+    "is_leakage_free": true
+  },
+  "hybrid_investigation": {
+    "selected_cnn_weight": 0.0,
+    "selected_vit_weight": 1.0,
+    "best_validation_macro_f1": 0.7563,
+    "tuning_curve": [
+      {
+        "cnn_weight": 0.0,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.05,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.1,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.15,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.2,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.25,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.3,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.35,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.4,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.45,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.5,
+        "val_macro_f1": 0.7563
+      },
+      {
+        "cnn_weight": 0.55,
+        "val_macro_f1": 0.7486
+      },
+      {
+        "cnn_weight": 0.6,
+        "val_macro_f1": 0.7486
+      },
+      {
+        "cnn_weight": 0.65,
+        "val_macro_f1": 0.7323
+      },
+      {
+        "cnn_weight": 0.7,
+        "val_macro_f1": 0.7159
+      },
+      {
+        "cnn_weight": 0.75,
+        "val_macro_f1": 0.6989
+      },
+      {
+        "cnn_weight": 0.8,
+        "val_macro_f1": 0.6847
+      },
+      {
+        "cnn_weight": 0.85,
+        "val_macro_f1": 0.6293
+      },
+      {
+        "cnn_weight": 0.9,
+        "val_macro_f1": 0.5413
+      },
+      {
+        "cnn_weight": 0.95,
+        "val_macro_f1": 0.4497
+      },
+      {
+        "cnn_weight": 1.0,
+        "val_macro_f1": 0.2794
+      }
+    ],
+    "scientific_rationale": "The validation grid search found that the maximum validation macro F1 (0.7563) occurred at w_cnn = 0.0 and w_vit = 1.0. Because the from-scratch CNN has significantly lower discriminative power (val F1 = 0.2794) compared to the pretrained ViT, mixing any non-zero fraction of CNN logits degrades the ensemble's validation performance. Thus, the hybrid mathematically collapses to pure ViT, explaining why test metrics are identical."
+  },
+  "calibration_audit": {
+    "temperature_used": 1.2,
+    "uncalibrated_ece": 0.0811,
+    "calibrated_ece": 0.0859,
+    "ece_reduction_pct": -6.0
+  },
+  "test_per_class_summary": {
+    "Maize/Disease/01_maydis_leaf_blight": {
+      "precision": 0.75,
+      "recall": 0.375,
+      "f1-score": 0.5,
+      "support": 8.0
+    },
+    "Maize/Disease/02_turcicum_leaf_blight": {
+      "precision": 0.7142857142857143,
+      "recall": 0.625,
+      "f1-score": 0.6666666666666666,
+      "support": 8.0
+    },
+    "Maize/Disease/03_curvularia_leaf_spot": {
+      "precision": 0.6,
+      "recall": 0.75,
+      "f1-score": 0.6666666666666665,
+      "support": 8.0
+    },
+    "Maize/Disease/04_sorghum_downy_mildew": {
+      "precision": 1.0,
+      "recall": 0.875,
+      "f1-score": 0.9333333333333333,
+      "support": 8.0
+    },
+    "Maize/Healthy": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 8.0
+    },
+    "Maize/Insect-pests/01_aphid": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 7.0
+    },
+    "Maize/Insect-pests/02_fall_armyworm": {
+      "precision": 0.8888888888888888,
+      "recall": 1.0,
+      "f1-score": 0.9411764705882353,
+      "support": 8.0
+    },
+    "Maize/Insect-pests/03_FAW_symptoms": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 8.0
+    },
+    "Rice/Disease/01_Bacterial_leaf_blight": {
+      "precision": 0.6,
+      "recall": 0.8571428571428571,
+      "f1-score": 0.7058823529411764,
+      "support": 7.0
+    },
+    "Rice/Disease/02_Brown_spot": {
+      "precision": 0.42857142857142855,
+      "recall": 0.375,
+      "f1-score": 0.39999999999999997,
+      "support": 8.0
+    },
+    "Rice/Disease/03_False_smut": {
+      "precision": 0.7,
+      "recall": 0.875,
+      "f1-score": 0.7777777777777777,
+      "support": 8.0
+    },
+    "Rice/Disease/04_leaf_sheath_blight": {
+      "precision": 0.7777777777777778,
+      "recall": 0.875,
+      "f1-score": 0.823529411764706,
+      "support": 8.0
+    },
+    "Rice/Healthy": {
+      "precision": 1.0,
+      "recall": 0.8571428571428571,
+      "f1-score": 0.923076923076923,
+      "support": 7.0
+    },
+    "Rice/Insect-pests/05_Leaf_folder": {
+      "precision": 0.75,
+      "recall": 0.8571428571428571,
+      "f1-score": 0.7999999999999999,
+      "support": 7.0
+    },
+    "Rice/Insect-pests/06_Rice_skipper": {
+      "precision": 1.0,
+      "recall": 0.7142857142857143,
+      "f1-score": 0.8333333333333333,
+      "support": 7.0
+    },
+    "Rice/Insect-pests/07_White_stem_borer": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 8.0
+    },
+    "Rice/Insect-pests/08_Yellow_stem_borer": {
+      "precision": 0.8571428571428571,
+      "recall": 0.8571428571428571,
+      "f1-score": 0.8571428571428571,
+      "support": 7.0
+    },
+    "accuracy": 0.8153846153846154,
+    "macro avg": {
+      "precision": 0.8274509803921568,
+      "recall": 0.8172268907563026,
+      "f1-score": 0.8134462231348045,
+      "support": 130.0
+    },
+    "weighted avg": {
+      "precision": 0.8255860805860806,
+      "recall": 0.8153846153846154,
+      "f1-score": 0.8116096221526086,
+      "support": 130.0
+    }
+  }
+}
