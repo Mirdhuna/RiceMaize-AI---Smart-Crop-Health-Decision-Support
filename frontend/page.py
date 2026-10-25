@@ -64,7 +64,7 @@ st.markdown(
     .main-title {
         font-size: 2.1rem;
         font-weight: 700;
-        color: #1b4332;
+        color: #FFC107;
         margin-bottom: 0.2rem;
     }
     .sub-title {
@@ -555,11 +555,11 @@ with tab_diag:
         sample_options = {
             "Select sample...": None,
             "🌾 Rice - Healthy Leaf": ROOT_DIR / "Dataset/Rice/Healthy/0c60af21-42a0-4e69-b957-a101c6a7d5c0.Jpg",
-            "🌾 Rice - Brown Spot Disease": ROOT_DIR / "Dataset/Rice/Disease/02_Brown_spot/02_Brown_spot (1).jpg",
-            "🌾 Rice - Bacterial Leaf Blight": ROOT_DIR / "Dataset/Rice/Disease/01_Bacterial_leaf_blight/01_Bacterial_leaf_blight (1).jpg",
-            "🌽 Maize - Healthy Leaf": ROOT_DIR / "Dataset/Maize/Healthy/0a1a6b09-b68e-4a62-b90d-27b0eb8cb111.Jpg",
-            "🌽 Maize - Fall Armyworm Symptoms": ROOT_DIR / "Dataset/Maize/Insect-pests/03_FAW_symptoms/0a2ff911-3957-41a4-927a-85d7f3001899.Jpg",
-            "🌽 Maize - Maydis Leaf Blight": ROOT_DIR / "Dataset/Maize/Disease/01_maydis_leaf_blight/01b33a7e-ada2-4963-a011-b6fbb6486912.Jpg",
+            "🌾 Rice - Brown Spot Disease": ROOT_DIR / "Dataset/Rice/Disease/02_Brown_spot/02_Brown_spot_002.jpg",
+            "🌾 Rice - Bacterial Leaf Blight": ROOT_DIR / "Dataset/Rice/Disease/01_Bacterial_leaf_blight/01_Bacterial_leaf_blight_003.jpg",
+            "🌽 Maize - Healthy Leaf": ROOT_DIR / "Dataset/Maize/Healthy/05cd0b4e-9740-4d72-bdd5-848a6f4c5dc3.Jpg",
+            "🌽 Maize - Fall Armyworm Symptoms": ROOT_DIR / "Dataset/Maize/Insect-pests/03_FAW_symptoms/FAW_Symptom399.jpg",
+            "🌽 Maize - Maydis Leaf Blight": ROOT_DIR / "Dataset/Maize/Disease/01_maydis_leaf_blight/01ab80b5-a414-45de-98a6-21cf505ba257.Jpg",
         }
 
         selected_sample_label = st.selectbox(
@@ -569,11 +569,29 @@ with tab_diag:
         )
         selected_sample_path = sample_options[selected_sample_label]
 
+        def resolve_sample_image_path(target_path):
+            if target_path is None:
+                return None
+            p = Path(target_path)
+            if p.is_file() and p.exists():
+                return p
+            search_dir = p if p.is_dir() else p.parent
+            if search_dir.exists() and search_dir.is_dir():
+                for ext in ("*.jpg", "*.jpeg", "*.png", "*.Jpg", "*.JPG", "*.PNG"):
+                    candidates = sorted(search_dir.glob(ext))
+                    if candidates:
+                        return candidates[0]
+            return None
+
+        resolved_sample_path = resolve_sample_image_path(selected_sample_path)
+
         active_image = None
         if uploaded_file is not None:
             active_image = Image.open(uploaded_file).convert("RGB")
-        elif selected_sample_path and Path(selected_sample_path).exists():
-            active_image = Image.open(selected_sample_path).convert("RGB")
+        elif resolved_sample_path is not None:
+            active_image = Image.open(resolved_sample_path).convert("RGB")
+        elif selected_sample_path is not None:
+            st.error(f"Sample image file could not be found: {selected_sample_path}")
 
         if active_image is not None:
             # Feature 3: Image Quality Validation
